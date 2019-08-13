@@ -1,5 +1,4 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
-# This module implements the base CCDData class.
 
 import textwrap
 
@@ -21,53 +20,18 @@ from astropy.utils.data import (get_pkg_data_filename, get_pkg_data_filenames,
 from astropy.nddata.ccddata import CCDData
 from astropy.table import Table
 
-# If additional pytest markers are defined the key in the dictionary below
-# should be the name of the marker.
-DEFAULTS = {
-    'seed': 123,
-    'data_size': 100,
-    'data_scale': 1.0,
-    'data_mean': 0.0
-}
-
-DEFAULT_SEED = 123
 DEFAULT_DATA_SIZE = 100
-DEFAULT_DATA_SCALE = 1.0
+
+with NumpyRNGContext(123):
+    _random_array = np.random.normal(size=[DEFAULT_DATA_SIZE, DEFAULT_DATA_SIZE])
 
 
-def value_from_markers(key, request):
-    m = request.node.get_closest_marker(key)
-    if m is not None:
-        return m.args[0]
-    else:
-        return DEFAULTS[key]
-
-
-@pytest.fixture
-def ccd_data(request):
+def create_ccd_data():
     """
-    Return a CCDData object with units of ADU.
-
-    The size of the data array is 100x100 but can be changed using the marker
-    @pytest.mark.data_size(N) on the test function, where N should be the
-    desired dimension.
-
-    Data values are initialized to random numbers drawn from a normal
-    distribution with mean of 0 and scale 1.
-
-    The scale can be changed with the marker @pytest.marker.scale(s) on the
-    test function, where s is the desired scale.
-
-    The mean can be changed with the marker @pytest.marker.scale(m) on the
-    test function, where m is the desired mean.
+    Return a CCDData object of size DEFAULT_DATA_SIZE x DEFAULT_DATA_SIZE
+    with units of ADU.
     """
-    size = value_from_markers('data_size', request)
-    scale = value_from_markers('data_scale', request)
-    mean = value_from_markers('data_mean', request)
-
-    with NumpyRNGContext(DEFAULTS['seed']):
-        data = np.random.normal(loc=mean, size=[size, size], scale=scale)
-
+    data = _random_array.copy()
     fake_meta = {'my_key': 42, 'your_key': 'not 42'}
     ccd = CCDData(data, unit=u.adu)
     ccd.header = fake_meta
@@ -81,10 +45,11 @@ def test_ccddata_empty():
 
 def test_ccddata_must_have_unit():
     with pytest.raises(ValueError):
-        CCDData(np.zeros([100, 100]))
+        CCDData(np.zeros([2, 2]))
 
 
-def test_ccddata_unit_cannot_be_set_to_none(ccd_data):
+def test_ccddata_unit_cannot_be_set_to_none():
+    ccd_data = create_ccd_data()
     with pytest.raises(TypeError):
         ccd_data.unit = None
 
@@ -92,37 +57,37 @@ def test_ccddata_unit_cannot_be_set_to_none(ccd_data):
 def test_ccddata_meta_header_conflict():
     with pytest.raises(ValueError) as exc:
         CCDData([1, 2, 3], unit='', meta={1: 1}, header={2: 2})
-        assert "can't have both header and meta." in str(exc)
+        assert "can't have both header and meta." in str(exc.value)
 
 
-@pytest.mark.data_size(10)
-def test_ccddata_simple(ccd_data):
-    assert ccd_data.shape == (10, 10)
-    assert ccd_data.size == 100
+def test_ccddata_simple():
+    ccd_data = create_ccd_data()
+    assert ccd_data.shape == (DEFAULT_DATA_SIZE, DEFAULT_DATA_SIZE)
+    assert ccd_data.size == DEFAULT_DATA_SIZE * DEFAULT_DATA_SIZE
     assert ccd_data.dtype == np.dtype(float)
 
 
 def test_ccddata_init_with_string_electron_unit():
-    ccd = CCDData(np.zeros((10, 10)), unit="electron")
+    ccd = CCDData(np.zeros([2, 2]), unit="electron")
     assert ccd.unit is u.electron
 
 
-@pytest.mark.data_size(10)
-def test_initialize_from_FITS(ccd_data, tmpdir):
+def test_initialize_from_FITS(tmpdir):
+    ccd_data = create_ccd_data()
     hdu = fits.PrimaryHDU(ccd_data)
     hdulist = fits.HDUList([hdu])
     filename = tmpdir.join('afile.fits').strpath
     hdulist.writeto(filename)
     cd = CCDData.read(filename, unit=u.electron)
-    assert cd.shape == (10, 10)
-    assert cd.size == 100
+    assert cd.shape == (DEFAULT_DATA_SIZE, DEFAULT_DATA_SIZE)
+    assert cd.size == DEFAULT_DATA_SIZE * DEFAULT_DATA_SIZE
     assert np.issubdtype(cd.data.dtype, np.floating)
     for k, v in hdu.header.items():
         assert cd.meta[k] == v
 
 
 def test_initialize_from_fits_with_unit_in_header(tmpdir):
-    fake_img = np.random.random(size=(100, 100))
+    fake_img = np.zeros([2, 2])
     hdu = fits.PrimaryHDU(fake_img)
     hdu.header['bunit'] = u.adu.to_string()
     filename = tmpdir.join('afile.fits').strpath
@@ -137,7 +102,7 @@ def test_initialize_from_fits_with_unit_in_header(tmpdir):
 
 
 def test_initialize_from_fits_with_ADU_in_header(tmpdir):
-    fake_img = np.random.random(size=(100, 100))
+    fake_img = np.zeros([2, 2])
     hdu = fits.PrimaryHDU(fake_img)
     hdu.header['bunit'] = 'ADU'
     filename = tmpdir.join('afile.fits').strpath
@@ -157,7 +122,7 @@ def test_initialize_from_fits_with_invalid_unit_in_header(tmpdir):
 
 
 def test_initialize_from_fits_with_data_in_different_extension(tmpdir):
-    fake_img = np.random.random(size=(100, 100))
+    fake_img = np.arange(4).reshape(2, 2)
     hdu1 = fits.PrimaryHDU()
     hdu2 = fits.ImageHDU(fake_img)
     hdus = fits.HDUList([hdu1, hdu2])
@@ -173,8 +138,8 @@ def test_initialize_from_fits_with_data_in_different_extension(tmpdir):
 
 
 def test_initialize_from_fits_with_extension(tmpdir):
-    fake_img1 = np.random.random(size=(100, 100))
-    fake_img2 = np.random.random(size=(100, 100))
+    fake_img1 = np.zeros([2, 2])
+    fake_img2 = np.arange(4).reshape(2, 2)
     hdu0 = fits.PrimaryHDU()
     hdu1 = fits.ImageHDU(fake_img1)
     hdu2 = fits.ImageHDU(fake_img2)
@@ -186,16 +151,18 @@ def test_initialize_from_fits_with_extension(tmpdir):
     np.testing.assert_array_equal(ccd.data, fake_img2)
 
 
-def test_write_unit_to_hdu(ccd_data, tmpdir):
+def test_write_unit_to_hdu():
+    ccd_data = create_ccd_data()
     ccd_unit = ccd_data.unit
     hdulist = ccd_data.to_hdu()
     assert 'bunit' in hdulist[0].header
     assert hdulist[0].header['bunit'] == ccd_unit.to_string()
 
 
-def test_initialize_from_FITS_bad_keyword_raises_error(ccd_data, tmpdir):
+def test_initialize_from_FITS_bad_keyword_raises_error(tmpdir):
     # There are two fits.open keywords that are not permitted in ccdproc:
     #     do_not_scale_image_data and scale_back
+    ccd_data = create_ccd_data()
     filename = tmpdir.join('test.fits').strpath
     ccd_data.write(filename)
 
@@ -206,7 +173,8 @@ def test_initialize_from_FITS_bad_keyword_raises_error(ccd_data, tmpdir):
         CCDData.read(filename, unit=ccd_data.unit, scale_back=True)
 
 
-def test_ccddata_writer(ccd_data, tmpdir):
+def test_ccddata_writer(tmpdir):
+    ccd_data = create_ccd_data()
     filename = tmpdir.join('test.fits').strpath
     ccd_data.write(filename)
 
@@ -214,7 +182,8 @@ def test_ccddata_writer(ccd_data, tmpdir):
     np.testing.assert_array_equal(ccd_data.data, ccd_disk.data)
 
 
-def test_ccddata_meta_is_case_sensitive(ccd_data):
+def test_ccddata_meta_is_case_sensitive():
+    ccd_data = create_ccd_data()
     key = 'SoMeKEY'
     ccd_data.meta[key] = 10
     assert key.lower() not in ccd_data.meta
@@ -222,12 +191,14 @@ def test_ccddata_meta_is_case_sensitive(ccd_data):
     assert key in ccd_data.meta
 
 
-def test_ccddata_meta_is_not_fits_header(ccd_data):
+def test_ccddata_meta_is_not_fits_header():
+    ccd_data = create_ccd_data()
     ccd_data.meta = {'OBSERVER': 'Edwin Hubble'}
     assert not isinstance(ccd_data.meta, fits.Header)
 
 
-def test_fromMEF(ccd_data, tmpdir):
+def test_fromMEF(tmpdir):
+    ccd_data = create_ccd_data()
     hdu = fits.PrimaryHDU(ccd_data)
     hdu2 = fits.PrimaryHDU(2 * ccd_data.data)
     hdulist = fits.HDUList(hdu)
@@ -242,7 +213,7 @@ def test_fromMEF(ccd_data, tmpdir):
     np.testing.assert_array_equal(cd.data, 2 * ccd_data.data)
 
 
-def test_metafromheader(ccd_data):
+def test_metafromheader():
     hdr = fits.header.Header()
     hdr['observer'] = 'Edwin Hubble'
     hdr['exptime'] = '3600'
@@ -275,25 +246,29 @@ def test_metafromstring_fail():
         CCDData(np.ones((5, 5)), meta=hdr, unit=u.adu)
 
 
-def test_setting_bad_uncertainty_raises_error(ccd_data):
+def test_setting_bad_uncertainty_raises_error():
+    ccd_data = create_ccd_data()
     with pytest.raises(TypeError):
         # Uncertainty is supposed to be an instance of NDUncertainty
         ccd_data.uncertainty = 10
 
 
-def test_setting_uncertainty_with_array(ccd_data):
+def test_setting_uncertainty_with_array():
+    ccd_data = create_ccd_data()
     ccd_data.uncertainty = None
     fake_uncertainty = np.sqrt(np.abs(ccd_data.data))
     ccd_data.uncertainty = fake_uncertainty.copy()
     np.testing.assert_array_equal(ccd_data.uncertainty.array, fake_uncertainty)
 
 
-def test_setting_uncertainty_wrong_shape_raises_error(ccd_data):
+def test_setting_uncertainty_wrong_shape_raises_error():
+    ccd_data = create_ccd_data()
     with pytest.raises(ValueError):
-        ccd_data.uncertainty = np.random.random(size=(3, 4))
+        ccd_data.uncertainty = np.zeros([3, 4])
 
 
-def test_to_hdu(ccd_data):
+def test_to_hdu():
+    ccd_data = create_ccd_data()
     ccd_data.meta = {'observer': 'Edwin Hubble'}
     fits_hdulist = ccd_data.to_hdu()
     assert isinstance(fits_hdulist, fits.HDUList)
@@ -302,7 +277,8 @@ def test_to_hdu(ccd_data):
     np.testing.assert_array_equal(fits_hdulist[0].data, ccd_data.data)
 
 
-def test_copy(ccd_data):
+def test_copy():
+    ccd_data = create_ccd_data()
     ccd_copy = ccd_data.copy()
     np.testing.assert_array_equal(ccd_copy.data, ccd_data.data)
     assert ccd_copy.unit == ccd_data.unit
@@ -321,13 +297,13 @@ def test_copy(ccd_data):
 @pytest.mark.parametrize('with_uncertainty', [
                          True,
                          False])
-@pytest.mark.data_unit(u.adu)
-def test_mult_div_overload(ccd_data, operand, with_uncertainty,
+def test_mult_div_overload(operand, with_uncertainty,
                            operation, affects_uncertainty):
+    ccd_data = create_ccd_data()
     if with_uncertainty:
         ccd_data.uncertainty = StdDevUncertainty(np.ones_like(ccd_data))
-    method = ccd_data.__getattribute__(operation)
-    np_method = np.__getattribute__(operation)
+    method = getattr(ccd_data, operation)
+    np_method = getattr(np, operation)
     result = method(operand)
     assert result is not ccd_data
     assert isinstance(result, CCDData)
@@ -372,13 +348,13 @@ def test_mult_div_overload(ccd_data, operand, with_uncertainty,
 @pytest.mark.parametrize('with_uncertainty', [
                          True,
                          False])
-@pytest.mark.data_unit(u.adu)
-def test_add_sub_overload(ccd_data, operand, expect_failure, with_uncertainty,
+def test_add_sub_overload(operand, expect_failure, with_uncertainty,
                           operation, affects_uncertainty):
+    ccd_data = create_ccd_data()
     if with_uncertainty:
         ccd_data.uncertainty = StdDevUncertainty(np.ones_like(ccd_data))
-    method = ccd_data.__getattribute__(operation)
-    np_method = np.__getattribute__(operation)
+    method = getattr(ccd_data, operation)
+    np_method = getattr(np, operation)
     if expect_failure:
         with pytest.raises(expect_failure):
             result = method(operand)
@@ -413,7 +389,8 @@ def test_add_sub_overload(ccd_data, operand, expect_failure, with_uncertainty,
         assert result.unit == ccd_data.unit
 
 
-def test_arithmetic_overload_fails(ccd_data):
+def test_arithmetic_overload_fails():
+    ccd_data = create_ccd_data()
     with pytest.raises(TypeError):
         ccd_data.multiply("five")
 
@@ -463,7 +440,8 @@ def test_arithmetic_with_wcs_compare_fail():
         ccd1.divide(ccd2, compare_wcs=return_diff_smaller_1).wcs
 
 
-def test_arithmetic_overload_ccddata_operand(ccd_data):
+def test_arithmetic_overload_ccddata_operand():
+    ccd_data = create_ccd_data()
     ccd_data.uncertainty = StdDevUncertainty(np.ones_like(ccd_data))
     operand = ccd_data.copy()
     result = ccd_data.add(operand)
@@ -561,7 +539,7 @@ def test_arithmetic_divide_with_array():
 
 
 def test_history_preserved_if_metadata_is_fits_header(tmpdir):
-    fake_img = np.random.random(size=(100, 100))
+    fake_img = np.zeros([2, 2])
     hdu = fits.PrimaryHDU(fake_img)
     hdu.header['history'] = 'one'
     hdu.header['history'] = 'two'
@@ -574,7 +552,8 @@ def test_history_preserved_if_metadata_is_fits_header(tmpdir):
     assert ccd_read.header['history'] == hdu.header['history']
 
 
-def test_infol_logged_if_unit_in_fits_header(ccd_data, tmpdir):
+def test_infol_logged_if_unit_in_fits_header(tmpdir):
+    ccd_data = create_ccd_data()
     tmpfile = tmpdir.join('temp.fits')
     ccd_data.write(tmpfile.strpath)
     log.setLevel('INFO')
@@ -584,13 +563,14 @@ def test_infol_logged_if_unit_in_fits_header(ccd_data, tmpdir):
         assert explicit_unit_name in log_list[0].message
 
 
-def test_wcs_attribute(ccd_data, tmpdir):
+def test_wcs_attribute(tmpdir):
     """
     Check that WCS attribute gets added to header, and that if a CCDData
     object is created from a FITS file with a header, and the WCS attribute
     is modified, then the CCDData object is turned back into an hdu, the
     WCS object overwrites the old WCS information in the header.
     """
+    ccd_data = create_ccd_data()
     tmpfile = tmpdir.join('temp.fits')
     # This wcs example is taken from the astropy.wcs docs.
     wcs = WCS(naxis=2)
@@ -662,14 +642,47 @@ def test_wcs_keywords_removed_from_header():
     ccd = CCDData.read(data_file1, unit='count')
 
 
+def test_wcs_SIP_coefficient_keywords_removed():
+    # If SIP polynomials are present, check that no more polynomial
+    # coefficients remain in the header. See #8598
+
+    # The SIP paper is ambiguous as to whether keywords like
+    # A_0_0 can appear in the header for a 2nd order or higher
+    # polynomial. The paper clearly says that the corrections
+    # are only for quadratic or higher order, so A_0_0 and the like
+    # should be zero if they are present, but they apparently can be
+    # there (or at least astrometry.net produces them).
+
+    # astropy WCS does not write those coefficients, so they were
+    # not being removed from the header even though they are WCS-related.
+
+    data_file = get_pkg_data_filename('data/sip-wcs.fits')
+
+    # Make sure the keywords added to this file for testing are there
+    hdu = fits.open(data_file)
+
+    test_keys = ['A_0_0', 'B_0_1']
+    for key in test_keys:
+        assert key in hdu[0].header
+
+    ccd = CCDData.read(data_file)
+
+    # Now the test...the two keywords above should have been removed.
+    for key in test_keys:
+        assert key not in ccd.header
+
+
 def test_wcs_keyword_removal_for_wcs_test_files():
     """
-    Test, for the WCS test files, that keyword removall works as
+    Test, for the WCS test files, that keyword removal works as
     expected. Those cover a much broader range of WCS types than
-    test_wcs_keywords_removed_from_header
+    test_wcs_keywords_removed_from_header.
+
+    Includes regression test for #8597
     """
     from astropy.nddata.ccddata import _generate_wcs_and_update_header
-    from astropy.nddata.ccddata import _KEEP_THESE_KEYWORDS_IN_HEADER
+    from astropy.nddata.ccddata import (_KEEP_THESE_KEYWORDS_IN_HEADER,
+                                        _CDs, _PCs)
 
     keepers = set(_KEEP_THESE_KEYWORDS_IN_HEADER)
     wcs_headers = get_pkg_data_filenames('../../wcs/tests/data',
@@ -680,20 +693,40 @@ def test_wcs_keyword_removal_for_wcs_test_files():
         if 'invalid' in hdr or 'nonstandard' in hdr or 'segfault' in hdr:
             continue
         header_string = get_pkg_data_contents(hdr)
+        header = fits.Header.fromstring(header_string)
+
         wcs = WCS(header_string)
-        header = wcs.to_header(relax=True)
+        header_from_wcs = wcs.to_header(relax=True)
+
         new_header, new_wcs = _generate_wcs_and_update_header(header)
-        # Make sure all of the WCS-related keywords have been removed.
-        assert not (set(new_header) &
-                    set(new_wcs.to_header(relax=True)) -
-                    keepers)
-        # Check that the new wcs is the same as the old.
         new_wcs_header = new_wcs.to_header(relax=True)
+
+        # Make sure all of the WCS-related keywords generated by astropy
+        # have been removed.
+        assert not (set(new_header) &
+                    set(new_wcs_header) -
+                    keepers)
+
+        # Check that new_header contains no remaining WCS information.
+        # Specifically, check that
+        # 1. The combination of new_header and new_wcs does not contain
+        #    both PCi_j and CDi_j keywords. See #8597.
+
+        # Check for 1
+        final_header = new_header + new_wcs_header
+        final_header_set = set(final_header)
+
+        if _PCs & final_header_set:
+            assert not (_CDs & final_header_set)
+        elif _CDs & final_header_set:
+            assert not (_PCs & final_header_set)
+
+        # Check that the new wcs is the same as the old.
         for k, v in new_wcs_header.items():
             if isinstance(v, str):
-                assert header[k] == v
+                assert header_from_wcs[k] == v
             else:
-                np.testing.assert_almost_equal(header[k], v)
+                np.testing.assert_almost_equal(header_from_wcs[k], v)
 
 
 def test_read_wcs_not_creatable(tmpdir):
@@ -735,13 +768,15 @@ def test_read_wcs_not_creatable(tmpdir):
     assert ccd.wcs is None
 
 
-def test_header(ccd_data):
+def test_header():
+    ccd_data = create_ccd_data()
     a = {'Observer': 'Hubble'}
     ccd = CCDData(ccd_data, header=a)
     assert ccd.meta == a
 
 
-def test_wcs_arithmetic(ccd_data):
+def test_wcs_arithmetic():
+    ccd_data = create_ccd_data()
     ccd_data.wcs = 5
     result = ccd_data.multiply(1.0)
     assert result.wcs == 5
@@ -749,10 +784,11 @@ def test_wcs_arithmetic(ccd_data):
 
 @pytest.mark.parametrize('operation',
                          ['multiply', 'divide', 'add', 'subtract'])
-def test_wcs_arithmetic_ccd(ccd_data, operation):
+def test_wcs_arithmetic_ccd(operation):
+    ccd_data = create_ccd_data()
     ccd_data2 = ccd_data.copy()
     ccd_data.wcs = 5
-    method = ccd_data.__getattribute__(operation)
+    method = getattr(ccd_data, operation)
     result = method(ccd_data2)
     assert result.wcs == ccd_data.wcs
     assert ccd_data2.wcs is None
@@ -797,16 +833,18 @@ def test_wcs_sip_handling():
 
 @pytest.mark.parametrize('operation',
                          ['multiply', 'divide', 'add', 'subtract'])
-def test_mask_arithmetic_ccd(ccd_data, operation):
+def test_mask_arithmetic_ccd(operation):
+    ccd_data = create_ccd_data()
     ccd_data2 = ccd_data.copy()
     ccd_data.mask = (ccd_data.data > 0)
-    method = ccd_data.__getattribute__(operation)
+    method = getattr(ccd_data, operation)
     result = method(ccd_data2)
     np.testing.assert_equal(result.mask, ccd_data.mask)
 
 
-def test_write_read_multiextensionfits_mask_default(ccd_data, tmpdir):
+def test_write_read_multiextensionfits_mask_default(tmpdir):
     # Test that if a mask is present the mask is saved and loaded by default.
+    ccd_data = create_ccd_data()
     ccd_data.mask = ccd_data.data > 10
     filename = tmpdir.join('afile.fits').strpath
     ccd_data.write(filename)
@@ -819,8 +857,9 @@ def test_write_read_multiextensionfits_mask_default(ccd_data, tmpdir):
     'uncertainty_type',
     [StdDevUncertainty, VarianceUncertainty, InverseVariance])
 def test_write_read_multiextensionfits_uncertainty_default(
-        ccd_data, tmpdir, uncertainty_type):
+        tmpdir, uncertainty_type):
     # Test that if a uncertainty is present it is saved and loaded by default.
+    ccd_data = create_ccd_data()
     ccd_data.uncertainty = uncertainty_type(ccd_data.data * 10)
     filename = tmpdir.join('afile.fits').strpath
     ccd_data.write(filename)
@@ -835,8 +874,9 @@ def test_write_read_multiextensionfits_uncertainty_default(
     'uncertainty_type',
     [StdDevUncertainty, VarianceUncertainty, InverseVariance])
 def test_write_read_multiextensionfits_uncertainty_different_uncertainty_key(
-        ccd_data, tmpdir, uncertainty_type):
+        tmpdir, uncertainty_type):
     # Test that if a uncertainty is present it is saved and loaded by default.
+    ccd_data = create_ccd_data()
     ccd_data.uncertainty = uncertainty_type(ccd_data.data * 10)
     filename = tmpdir.join('afile.fits').strpath
     ccd_data.write(filename, key_uncertainty_type='Blah')
@@ -847,8 +887,9 @@ def test_write_read_multiextensionfits_uncertainty_different_uncertainty_key(
                                   ccd_after.uncertainty.array)
 
 
-def test_write_read_multiextensionfits_not(ccd_data, tmpdir):
+def test_write_read_multiextensionfits_not(tmpdir):
     # Test that writing mask and uncertainty can be disabled
+    ccd_data = create_ccd_data()
     ccd_data.mask = ccd_data.data > 10
     ccd_data.uncertainty = StdDevUncertainty(ccd_data.data * 10)
     filename = tmpdir.join('afile.fits').strpath
@@ -858,8 +899,9 @@ def test_write_read_multiextensionfits_not(ccd_data, tmpdir):
     assert ccd_after.mask is None
 
 
-def test_write_read_multiextensionfits_custom_ext_names(ccd_data, tmpdir):
+def test_write_read_multiextensionfits_custom_ext_names(tmpdir):
     # Test writing mask, uncertainty in another extension than default
+    ccd_data = create_ccd_data()
     ccd_data.mask = ccd_data.data > 10
     ccd_data.uncertainty = StdDevUncertainty(ccd_data.data * 10)
     filename = tmpdir.join('afile.fits').strpath
@@ -879,17 +921,47 @@ def test_write_read_multiextensionfits_custom_ext_names(ccd_data, tmpdir):
                                   ccd_after.uncertainty.array)
 
 
-def test_wcs(ccd_data):
+def test_read_old_style_multiextensionfits(tmpdir):
+    # Regression test for https://github.com/astropy/ccdproc/issues/664
+    #
+    # Prior to astropy 3.1 there was no uncertainty type saved
+    # in the multiextension fits files generated by CCDData
+    # because the uncertainty had to be StandardDevUncertainty.
+    #
+    # Current version should be able to read those in.
+    #
+    size = 4
+    # Value of the variables below are not important to the test.
+    data = np.zeros([size, size])
+    mask = data > 0.9
+    uncert = np.sqrt(data)
+
+    ccd = CCDData(data=data, mask=mask, uncertainty=uncert, unit='adu')
+    # We'll create the file manually to ensure we have the
+    # right extension names and no uncertainty type.
+    hdulist = ccd.to_hdu()
+    del hdulist[2].header['UTYPE']
+    file_name = tmpdir.join('old_ccddata_mef.fits').strpath
+    hdulist.writeto(file_name)
+
+    ccd = CCDData.read(file_name)
+
+    assert isinstance(ccd.uncertainty, StdDevUncertainty)
+
+
+def test_wcs():
+    ccd_data = create_ccd_data()
     ccd_data.wcs = 5
     assert ccd_data.wcs == 5
 
 
-def test_recognized_fits_formats_for_read_write(ccd_data, tmpdir):
+def test_recognized_fits_formats_for_read_write(tmpdir):
     # These are the extensions that are supposed to be supported.
+    ccd_data = create_ccd_data()
     supported_extensions = ['fit', 'fits', 'fts']
 
     for ext in supported_extensions:
-        path = tmpdir.join("test.{}".format(ext))
+        path = tmpdir.join(f"test.{ext}")
         ccd_data.write(path.strpath)
         from_disk = CCDData.read(path.strpath)
         assert (ccd_data.data == from_disk.data).all()

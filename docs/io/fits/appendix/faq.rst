@@ -30,7 +30,7 @@ Although PyFITS is written mostly in Python, it includes an optional module
 written in C that's required to read/write compressed image data.  However,
 the rest of PyFITS functions without this extension module.
 
-.. _PyFITS: http://www.stsci.edu/institute/software_hardware/pyfits
+.. _PyFITS: https://github.com/spacetelescope/pyfits
 .. _Python: https://www.python.org/
 .. _FITS: https://fits.gsfc.nasa.gov/
 .. _Numpy: http://www.numpy.org/
@@ -229,7 +229,7 @@ image were already in memory.  This works the same way for tables.  For most
 cases this is your best bet for working with large files.
 
 To ensure use of memory mapping, just add the ``memmap=True`` argument to
-`fits.open <astropy.io.fits.open>`_.  Likewise, using ``memmap=False`` will
+`astropy.io.fits.open`.  Likewise, using ``memmap=False`` will
 force data to be read entirely into memory.
 
 

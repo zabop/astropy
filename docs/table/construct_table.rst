@@ -256,6 +256,21 @@ Every row must have the same set of keys or a ValueError will be thrown::
     ...
   ValueError: Row 0 has no value for column c
 
+You can also preserve the column order by using ``OrderedDict``. If the first item is an
+``OrderedDict`` then the order is preserved:
+
+  >>> from collections import OrderedDict
+  >>> row1 = OrderedDict([('b', 1), ('a', 0)])
+  >>> row2 = OrderedDict([('b', 11), ('a', 10)])
+  >>> rows = [row1, row2]
+  >>> Table(rows=rows, dtype=('i4', 'i4'))
+  <Table length=2>
+    b     a
+  int32 int32
+  ----- -----
+      1     0
+     11    10
+
 **Single row**
 
 You can also make a new table from a single row of an existing table::
@@ -282,9 +297,7 @@ NumPy structured array
 ----------------------
 The structured array is the standard mechanism in `numpy` for storing
 heterogeneous table data.  Most scientific I/O packages that read table
-files (e.g.  `PyFITS
-<http://www.stsci.edu/institute/software_hardware/pyfits>`_, `vo.table
-<http://stsdas.stsci.edu/astrolib/vo/html/intro_table.html>`_, `asciitable
+files (e.g., `astropy.io.fits`, `astropy.io.votable`, and `asciitable
 <http://cxc.harvard.edu/contrib/asciitable/>`_) will return the table in an
 object that is based on the structured array.  A structured array can be
 created using::
@@ -574,7 +587,8 @@ for the ``data`` argument.
     key values in each dict define the column names and each row must
     have identical column names.  The ``names`` argument may be supplied
     to specify column ordering.  If it is not provided, the column order will
-    default to alphabetical.  The ``dtype`` list may be specified, and must
+    default to alphabetical. If the first item is an ``OrderedDict``, then the
+    column order is preserved.  The ``dtype`` list may be specified, and must
     correspond to the order of output columns.  If any row's keys do no match
     the rest of the rows, a ValueError will be thrown.
 
@@ -631,7 +645,7 @@ copy
 
 By default the input ``data`` are copied into a new internal ``np.ndarray``
 object in the Table object.  In the case where ``data`` is either an
-``np.ndarray`` object or an existing ``Table``, it is possible to use a
+``np.ndarray`` object, a ``dict``, or an existing ``Table``, it is possible to use a
 reference to the existing data by setting ``copy=False``.  This has the
 advantage of reducing memory use and being faster.  However one should take
 care because any modifications to the new Table data will also be seen in the
@@ -647,7 +661,7 @@ Copy versus Reference
 Normally when a new |Table| object is created, the input data are *copied* into
 a new internal array object.  This ensures that if the new table elements are
 modified then the original data will not be affected.  However, when creating a
-table from a numpy ndarray object (structured or homogeneous), it is possible to
+table from a numpy ndarray object (structured or homogeneous) or a dict, it is possible to
 disable copying so that instead a memory reference to the original data is
 used.  This has the advantage of being faster and using less memory.  However,
 caution must be exercised because the new table data and original data will be

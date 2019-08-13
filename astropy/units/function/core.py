@@ -6,14 +6,14 @@ from abc import ABCMeta, abstractmethod
 
 import numpy as np
 
-from astropy.units import (Unit, UnitBase, UnitsError, UnitTypeError,
-                dimensionless_unscaled, Quantity)
+from astropy.units import (Unit, UnitBase, UnitsError, UnitTypeError, UnitConversionError,
+                           dimensionless_unscaled, Quantity)
 
 __all__ = ['FunctionUnitBase', 'FunctionQuantity']
 
 SUPPORTED_UFUNCS = set(getattr(np.core.umath, ufunc) for ufunc in (
     'isfinite', 'isinf', 'isnan', 'sign', 'signbit',
-    'rint', 'floor', 'ceil', 'trunc', 'power',
+    'rint', 'floor', 'ceil', 'trunc',
     '_ones_like', 'ones_like', 'positive') if hasattr(np.core.umath, ufunc))
 
 # TODO: the following could work if helper changed relative to Quantity:
@@ -98,8 +98,8 @@ class FunctionUnitBase(metaclass=ABCMeta):
             if (not isinstance(self._physical_unit, UnitBase) or
                 self._physical_unit.is_equivalent(
                     self._default_function_unit)):
-                raise ValueError("Unit {0} is not a physical unit."
-                                 .format(self._physical_unit))
+                raise UnitConversionError("Unit {} is not a physical unit."
+                                          .format(self._physical_unit))
 
         if function_unit is None:
             self._function_unit = self._default_function_unit
@@ -110,12 +110,11 @@ class FunctionUnitBase(metaclass=ABCMeta):
             if function_unit.is_equivalent(self._default_function_unit):
                 self._function_unit = function_unit
             else:
-                raise ValueError("Cannot initialize '{0}' instance with "
-                                 "function unit '{1}', as it is not "
-                                 "equivalent to default function unit '{2}'."
-                                 .format(self.__class__.__name__,
-                                         function_unit,
-                                         self._default_function_unit))
+                raise UnitConversionError(
+                    "Cannot initialize '{}' instance with function unit '{}'"
+                    ", as it is not equivalent to default function unit '{}'."
+                    .format(self.__class__.__name__, function_unit,
+                            self._default_function_unit))
 
     def _copy(self, physical_unit=None):
         """Copy oneself, possibly with a different physical unit."""
@@ -252,9 +251,19 @@ class FunctionUnitBase(metaclass=ABCMeta):
             return self.function_unit.to(other_function_unit, value)
 
         else:
-            # when other is not a function unit
-            return self.physical_unit.to(other, self.to_physical(value),
-                                         equivalencies)
+            try:
+                # when other is not a function unit
+                return self.physical_unit.to(other, self.to_physical(value),
+                                             equivalencies)
+            except UnitConversionError as e:
+                if self.function_unit == Unit('mag'):
+                    # One can get to raw magnitudes via math that strips the dimensions off.
+                    # Include extra information in the exception to remind users of this.
+                    msg = "Did you perhaps subtract magnitudes so the unit got lost?"
+                    e.args += (msg,)
+                    raise e
+                else:
+                    raise
 
     def is_unity(self):
         return False
@@ -266,6 +275,13 @@ class FunctionUnitBase(metaclass=ABCMeta):
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+    def __rlshift__(self, other):
+        """Unit converstion operator ``<<``"""
+        try:
+            return self._quantity_class(other, self, copy=False, subok=True)
+        except Exception:
+            return NotImplemented
 
     def __mul__(self, other):
         if isinstance(other, (str, UnitBase, FunctionUnitBase)):
@@ -345,7 +361,7 @@ class FunctionUnitBase(metaclass=ABCMeta):
             provided, defaults to the generic format.
         """
         if format not in ('generic', 'unscaled', 'latex'):
-            raise ValueError("Function units cannot be written in {0} format. "
+            raise ValueError("Function units cannot be written in {} format. "
                              "Only 'generic', 'unscaled' and 'latex' are "
                              "supported.".format(format))
         self_str = self.function_unit.to_string(format)
@@ -356,7 +372,7 @@ class FunctionUnitBase(metaclass=ABCMeta):
             self_str += r'$\mathrm{{\left( {0} \right)}}$'.format(
                 pu_str[1:-1])   # need to strip leading and trailing "$"
         else:
-            self_str += '({0})'.format(pu_str)
+            self_str += f'({pu_str})'
         return self_str
 
     def __str__(self):
@@ -364,20 +380,20 @@ class FunctionUnitBase(metaclass=ABCMeta):
         self_str = str(self.function_unit)
         pu_str = str(self.physical_unit)
         if pu_str:
-            self_str += '({0})'.format(pu_str)
+            self_str += f'({pu_str})'
         return self_str
 
     def __repr__(self):
         # By default, try to give a representation using `Unit(<string>)`,
         # with string such that parsing it would give the correct FunctionUnit.
         if callable(self.function_unit):
-            return 'Unit("{0}")'.format(self.to_string())
+            return 'Unit("{}")'.format(self.to_string())
 
         else:
-            return '{0}("{1}"{2})'.format(
+            return '{}("{}"{})'.format(
                 self.__class__.__name__, self.physical_unit,
                 "" if self.function_unit is self._default_function_unit
-                else ', unit="{0}"'.format(self.function_unit))
+                else f', unit="{self.function_unit}"')
 
     def _repr_latex_(self):
         """
@@ -541,11 +557,23 @@ class FunctionQuantity(Quantity):
                 unit = self._unit_class(function_unit=unit or 'nonsense')
             except Exception:
                 raise UnitTypeError(
-                    "{0} instances require {1} function units"
+                    "{} instances require {} function units"
                     .format(type(self).__name__, self._unit_class.__name__) +
-                    ", so cannot set it to '{0}'.".format(unit))
+                    f", so cannot set it to '{unit}'.")
 
         self._unit = unit
+
+    def __array_ufunc__(self, function, method, *inputs, **kwargs):
+        # TODO: it would be more logical to have this in Quantity already,
+        # instead of in UFUNC_HELPERS, where it cannot be overridden.
+        # And really it should just return NotImplemented, since possibly
+        # another argument might know what to do.
+        if function not in self._supported_ufuncs:
+            raise UnitTypeError(
+                "Cannot use ufunc '{}' with function quantities"
+                .format(function.__name__))
+
+        return super().__array_ufunc__(function, method, *inputs, **kwargs)
 
     # ↓↓↓ methods overridden to change behavior
     def __mul__(self, other):
@@ -615,6 +643,15 @@ class FunctionQuantity(Quantity):
     def __le__(self, other):
         return self._comparison(other, self.value.__le__)
 
+    def __lshift__(self, other):
+        """Unit converstion operator `<<`"""
+        try:
+            other = Unit(other, parse_strict='silent')
+        except UnitTypeError:
+            return NotImplemented
+
+        return self.__class__(self, other, copy=False, subok=True)
+
     # Ensure Quantity methods are used only if they make sense.
     def _wrap_function(self, function, *args, **kwargs):
         if function in self._supported_functions:
@@ -628,6 +665,25 @@ class FunctionQuantity(Quantity):
             args = tuple(getattr(arg, '_function_view', arg) for arg in args)
             return self._function_view._wrap_function(function, *args, **kwargs)
 
-        raise TypeError("Cannot use method that uses function '{0}' with "
+        raise TypeError("Cannot use method that uses function '{}' with "
                         "function quantities that are not dimensionless."
                         .format(function.__name__))
+
+    # Override functions that are supported but do not use _wrap_function
+    # in Quantity.
+    def max(self, axis=None, out=None, keepdims=False):
+        return self._wrap_function(np.max, axis, out=out, keepdims=keepdims)
+
+    def min(self, axis=None, out=None, keepdims=False):
+        return self._wrap_function(np.min, axis, out=out, keepdims=keepdims)
+
+    def sum(self, axis=None, dtype=None, out=None, keepdims=False):
+        return self._wrap_function(np.sum, axis, dtype, out=out,
+                                   keepdims=keepdims)
+
+    def cumsum(self, axis=None, dtype=None, out=None):
+        return self._wrap_function(np.cumsum, axis, dtype, out=out)
+
+    def clip(self, a_min, a_max, out=None):
+        return self._wrap_function(np.clip, self._to_own_unit(a_min),
+                                   self._to_own_unit(a_max), out=out)

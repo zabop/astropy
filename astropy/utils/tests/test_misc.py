@@ -9,6 +9,7 @@ import pytest
 import numpy as np
 
 from astropy.utils import data, misc
+from astropy.utils.exceptions import AstropyDeprecationWarning
 
 
 def test_isiterable():
@@ -31,7 +32,11 @@ def test_api_lookup():
     objurl = misc.find_api_page(misc, 'dev', False, timeout=3)
 
     assert strurl == objurl
-    assert strurl == 'http://devdocs.astropy.org/utils/index.html#module-astropy.utils.misc'
+    assert strurl == 'http://devdocs.astropy.org/utils/index.html#module-astropy.utils.misc'  # noqa
+
+    # Try a non-dev version
+    objurl = misc.find_api_page(misc, 'v3.2.1', False, timeout=3)
+    assert objurl == 'https://docs.astropy.org/en/v3.2.1/utils/index.html#module-astropy.utils.misc'  # noqa
 
 
 def test_skip_hidden():
@@ -75,15 +80,16 @@ def test_JsonCustomEncoder():
 
 
 def test_inherit_docstrings():
-    class Base(metaclass=misc.InheritDocstrings):
-        def __call__(self, *args):
-            "FOO"
-            pass
+    with pytest.warns(AstropyDeprecationWarning, match="inherits docstring"):
+        class Base(metaclass=misc.InheritDocstrings):
+            def __call__(self, *args):
+                "FOO"
+                pass
 
-        @property
-        def bar(self):
-            "BAR"
-            pass
+            @property
+            def bar(self):
+                "BAR"
+                pass
 
     class Subclass(Base):
         def __call__(self, *args):
@@ -105,10 +111,10 @@ def test_set_locale():
     # First, test if the required locales are available
     current = locale.setlocale(locale.LC_ALL)
     try:
-        locale.setlocale(locale.LC_ALL, str('en_US'))
-        locale.setlocale(locale.LC_ALL, str('de_DE'))
+        locale.setlocale(locale.LC_ALL, 'en_US')
+        locale.setlocale(locale.LC_ALL, 'de_DE')
     except locale.Error as e:
-        pytest.skip('Locale error: {}'.format(e))
+        pytest.skip(f'Locale error: {e}')
     finally:
         locale.setlocale(locale.LC_ALL, current)
 
@@ -143,4 +149,4 @@ def test_dtype_bytes_or_chars():
     assert misc.dtype_bytes_or_chars(np.dtype(object)) is None
     assert misc.dtype_bytes_or_chars(np.dtype(np.int32)) == 4
     assert misc.dtype_bytes_or_chars(np.array(b'12345').dtype) == 5
-    assert misc.dtype_bytes_or_chars(np.array(u'12345').dtype) == 5
+    assert misc.dtype_bytes_or_chars(np.array('12345').dtype) == 5

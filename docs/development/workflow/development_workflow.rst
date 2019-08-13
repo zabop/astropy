@@ -332,10 +332,11 @@ In more detail
 
 #. Add tests of your new code, if appropriate. Some changes (e.g. to
    documentation) do not need tests. Detailed instructions are at
-   :ref:`testing-guidelines`, but if you have no experience writing tests or
+   :ref:`writing-tests`, but if you have no experience writing tests or
    with the `py.test`_ testing framework submit your changes without adding
-   tests, but mention in the pull request that you have not written tests. An
-   example of writing a test is in :ref:`astropy-fix-example`.
+   tests, but mention in the pull request that you have not written tests.
+   An example of writing a test is in
+   :ref:`astropy-fix-add-tests`.
 
 #. Stage your changes using ``git add`` and commit them using ``git commit``.
    An example of doing that, based on the fix for an actual Astropy issue, is
@@ -359,8 +360,8 @@ Add a changelog entry
 
 Add an entry to the file ``CHANGES.rst`` briefly describing the change you
 made. Include the pull request number, too at the end of the entry. An
-example entry, for the changes which fixed
-`issue 1845 <https://github.com/astropy/astropy/pull/1845>`_, is::
+example entry, for the changes in
+`PR 1845 <https://github.com/astropy/astropy/pull/1845>`_, is::
 
   - ``astropy.wcs.Wcs.printwcs`` will no longer warn that ``cdelt`` is
     being ignored when none was present in the FITS file. [#1845]
@@ -494,8 +495,8 @@ applying only that patch.
 Many of us find that is it actually easiest to squash using rebase. In particular,
 you can rebase and squash within the existing branch using::
 
-  git fetch upstream
-  git rebase -i upstream/master
+  git fetch astropy
+  git rebase -i astropy/master
 
 The last command will open an editor with all your commits, allowing you to
 squash several commits together, rename them, etc. Helpfully, the file you are

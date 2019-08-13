@@ -7,19 +7,21 @@ from collections import OrderedDict
 
 import numpy as np
 
-from .core import (Fittable1DModel, Fittable2DModel,
-                   ModelDefinitionError)
-from .parameters import Parameter, InputParameterError
-from .utils import ellipse_extent
 from astropy import units as u
 from astropy.units import Quantity, UnitsError
+from .core import (Fittable1DModel, Fittable2DModel,
+                   ModelDefinitionError)
+
+from .parameters import Parameter, InputParameterError
+from .utils import ellipse_extent
+
 
 __all__ = ['AiryDisk2D', 'Moffat1D', 'Moffat2D', 'Box1D', 'Box2D', 'Const1D',
-           'Const2D', 'Ellipse2D', 'Disk2D', 'Gaussian1D',
-           'Gaussian2D', 'Linear1D', 'Lorentz1D',
-           'MexicanHat1D', 'MexicanHat2D', 'RedshiftScaleFactor',
-           'Scale', 'Multiply', 'Sersic1D', 'Sersic2D', 'Shift', 'Sine1D', 'Trapezoid1D',
-           'TrapezoidDisk2D', 'Ring2D', 'Voigt1D']
+           'Const2D', 'Ellipse2D', 'Disk2D', 'Gaussian1D', 'Gaussian2D', 'Linear1D',
+           'Lorentz1D', 'MexicanHat1D', 'MexicanHat2D', 'RedshiftScaleFactor',
+           'Multiply', 'Planar2D', 'Scale', 'Sersic1D', 'Sersic2D', 'Shift',
+           'Sine1D', 'Trapezoid1D', 'TrapezoidDisk2D', 'Ring2D', 'Voigt1D', 'KingProjectedAnalytic1D']
+
 
 TWOPI = 2 * np.pi
 FLOAT_EPSILON = float(np.finfo(np.float32).tiny)
@@ -459,9 +461,6 @@ class Shift(Fittable1DModel):
         Offset to add to a coordinate.
     """
 
-    inputs = ('x',)
-    outputs = ('x',)
-
     offset = Parameter(default=0)
     linear = True
 
@@ -496,6 +495,9 @@ class Shift(Fittable1DModel):
         d_offset = np.ones_like(x)
         return [d_offset]
 
+    def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
+        return OrderedDict([('offset', outputs_unit['y'])])
+
 
 class Scale(Fittable1DModel):
     """
@@ -513,9 +515,6 @@ class Scale(Fittable1DModel):
     stripped before the scaling operation.
 
     """
-
-    inputs = ('x',)
-    outputs = ('x',)
 
     factor = Parameter(default=1)
     linear = True
@@ -553,6 +552,12 @@ class Scale(Fittable1DModel):
         d_factor = x
         return [d_factor]
 
+    def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
+        unit = outputs_unit['y'] / inputs_unit['x']
+        if unit == u.one:
+            unit = None
+        return OrderedDict([('factor', unit)])
+
 
 class Multiply(Fittable1DModel):
     """
@@ -565,7 +570,7 @@ class Multiply(Fittable1DModel):
     """
 
     inputs = ('x',)
-    outputs = ('x',)
+    outputs = ('y',)
 
     factor = Parameter(default=1)
     linear = True
@@ -589,6 +594,9 @@ class Multiply(Fittable1DModel):
 
         d_factor = x
         return [d_factor]
+
+    def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
+        return OrderedDict([('factor', outputs_unit['y'])])
 
 
 class RedshiftScaleFactor(Fittable1DModel):
@@ -886,10 +894,6 @@ class Planar2D(Fittable2DModel):
     intercept : float
         Z-intercept of the straight line
 
-    See Also
-    --------
-    Linear1D, Polynomial2D
-
     Notes
     -----
     Model formula:
@@ -916,6 +920,11 @@ class Planar2D(Fittable2DModel):
         d_slope_y = y
         d_intercept = np.ones_like(x)
         return [d_slope_x, d_slope_y, d_intercept]
+
+    def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
+        return OrderedDict([('intercept', outputs_unit['z']),
+                            ('slope_x', outputs_unit['z'] / inputs_unit['x']),
+                            ('slope_y', outputs_unit['z'] / inputs_unit['y'])])
 
 
 class Lorentz1D(Fittable1DModel):
@@ -1081,7 +1090,7 @@ class Voigt1D(Fittable1DModel):
         Y = fwhm_L * sqrt_ln2 / fwhm_G
         Y = np.atleast_1d(Y)[..., np.newaxis]
 
-        V = np.sum((C * (Y - A) + D * (X - B))/(((Y - A) ** 2 + (X - B) ** 2)), axis=-1)
+        V = np.sum((C * (Y - A) + D * (X - B))/((Y - A) ** 2 + (X - B) ** 2), axis=-1)
 
         return (fwhm_L * amplitude_L * np.sqrt(np.pi) * sqrt_ln2 / fwhm_G) * V
 
@@ -2257,7 +2266,7 @@ class Moffat1D(Fittable1DModel):
         Derivation of the formula is available in
         `this notebook by Yoonsoo Bach <http://nbviewer.jupyter.org/github/ysbach/AO_2017/blob/master/04_Ground_Based_Concept.ipynb#1.2.-Moffat>`_.
         """
-        return 2.0 * self.gamma * np.sqrt(2.0 ** (1.0 / self.alpha) - 1.0)
+        return 2.0 * np.abs(self.gamma) * np.sqrt(2.0 ** (1.0 / self.alpha) - 1.0)
 
     @staticmethod
     def evaluate(x, amplitude, x_0, gamma, alpha):
@@ -2334,7 +2343,7 @@ class Moffat2D(Fittable2DModel):
         Derivation of the formula is available in
         `this notebook by Yoonsoo Bach <http://nbviewer.jupyter.org/github/ysbach/AO_2017/blob/master/04_Ground_Based_Concept.ipynb#1.2.-Moffat>`_.
         """
-        return 2.0 * self.gamma * np.sqrt(2.0 ** (1.0 / self.alpha) - 1.0)
+        return 2.0 * np.abs(self.gamma) * np.sqrt(2.0 ** (1.0 / self.alpha) - 1.0)
 
     @staticmethod
     def evaluate(x, y, amplitude, x_0, y_0, gamma, alpha):
@@ -2499,3 +2508,138 @@ class Sersic2D(Fittable2DModel):
                             ('r_eff', inputs_unit['x']),
                             ('theta', u.rad),
                             ('amplitude', outputs_unit['z'])])
+
+
+class KingProjectedAnalytic1D(Fittable1DModel):
+    """
+    Projected (surface density) analytic King Model.
+
+
+    Parameters
+    ----------
+    amplitude : float
+        Amplitude or scaling factor.
+    r_core : float
+        Core radius (f(r_c) ~ 0.5 f_0)
+    r_tide : float
+        Tidal radius.
+
+
+    Notes
+    -----
+
+    This model approximates a King model with an analytic function. The derivation of this
+    equation can be found in King '62 (equation 14). This is just an approximation of the
+    full model and the parameters derived from this model should be taken with caution.
+    It usually works for models with a concentration (c = log10(r_t/r_c) paramter < 2.
+
+    Model formula:
+
+    .. math::
+
+        f(x) = A r_c^2  \\left(\\frac{1}{\\sqrt{(x^2 + r_c^2)}} -
+        \\frac{1}{\\sqrt{(r_t^2 + r_c^2)}}\\right)^2
+
+    Examples
+    --------
+    .. plot::
+        :include-source:
+
+        import numpy as np
+        from astropy.modeling.models import KingProjectedAnalytic1D
+        import matplotlib.pyplot as plt
+
+        plt.figure()
+        rt_list = [1, 2, 5, 10, 20]
+        for rt in rt_list:
+            r = np.linspace(0.1, rt, 100)
+
+            mod = KingProjectedAnalytic1D(amplitude = 1, r_core = 1., r_tide = rt)
+            sig = mod(r)
+
+
+            plt.loglog(r, sig/sig[0], label='c ~ {:0.2f}'.format(mod.concentration))
+
+        plt.xlabel("r")
+        plt.ylabel(r"$\\sigma/\\sigma_0$")
+        plt.legend()
+        plt.show()
+
+    References
+    ----------
+    .. [1] http://articles.adsabs.harvard.edu/pdf/1962AJ.....67..471K
+    """
+
+    amplitude = Parameter(default=1, bounds=(FLOAT_EPSILON, None))
+    r_core = Parameter(default=1, bounds=(FLOAT_EPSILON, None))
+    r_tide = Parameter(default=2, bounds=(FLOAT_EPSILON, None))
+
+    @property
+    def concentration(self):
+        """Concentration parameter of the king model"""
+        return np.log10(np.abs(self.r_tide/self.r_core))
+
+    @staticmethod
+    def evaluate(x, amplitude, r_core, r_tide):
+        """
+        Analytic King model function.
+        """
+
+        result = amplitude * r_core ** 2 * (1/np.sqrt(x ** 2 + r_core ** 2) -
+                                          1/np.sqrt(r_tide ** 2 + r_core ** 2)) ** 2
+
+        # Set invalid r values to 0
+        bounds = (x >= r_tide) | (x<0)
+        result[bounds] = result[bounds] * 0.
+
+        return result
+
+    @staticmethod
+    def fit_deriv(x, amplitude, r_core, r_tide):
+        """
+        Analytic King model function derivatives.
+        """
+        d_amplitude = r_core ** 2 * (1/np.sqrt(x ** 2 + r_core ** 2) -
+                                     1/np.sqrt(r_tide ** 2 + r_core ** 2)) ** 2
+
+        d_r_core = 2 * amplitude * r_core ** 2 * (r_core/(r_core ** 2 + r_tide ** 2) ** (3/2) -
+                                                  r_core/(r_core ** 2 + x ** 2) ** (3/2)) * \
+                   (1./np.sqrt(r_core ** 2 + x ** 2) - 1./np.sqrt(r_core ** 2 + r_tide ** 2)) + \
+                   2 * amplitude * r_core * (1./np.sqrt(r_core ** 2 + x ** 2) -
+                                             1./np.sqrt(r_core ** 2 + r_tide ** 2)) ** 2
+
+        d_r_tide = (2 * amplitude * r_core ** 2 * r_tide *
+                    (1./np.sqrt(r_core ** 2 + x ** 2) -
+                     1./np.sqrt(r_core ** 2 + r_tide ** 2)))/(r_core ** 2 + r_tide ** 2) ** (3/2)
+
+        # Set invalid r values to 0
+        bounds = (x >= r_tide) | (x < 0)
+        d_amplitude[bounds] = d_amplitude[bounds]*0
+        d_r_core[bounds] = d_r_core[bounds]*0
+        d_r_tide[bounds] = d_r_tide[bounds]*0
+
+        return [d_amplitude, d_r_core, d_r_tide]
+
+    @property
+    def bounding_box(self):
+        """
+        Tuple defining the default ``bounding_box`` limits.
+
+        The model is not defined for r > r_tide.
+
+        ``(r_low, r_high)``
+        """
+
+        return (0 * self.r_tide, 1 * self.r_tide)
+
+    @property
+    def input_units(self):
+        if self.r_core.unit is None:
+            return None
+        else:
+            return {'x': self.r_core.unit}
+
+    def _parameter_units_for_data_units(self, inputs_unit, outputs_unit):
+        return OrderedDict([('r_core', inputs_unit['x']),
+                            ('r_tide', inputs_unit['x']),
+                            ('amplitude', outputs_unit['y'])])

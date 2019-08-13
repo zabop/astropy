@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from collections import OrderedDict
 
 import numpy as np
+import os.path
 
 from .sky_coordinate import SkyCoord
 from astropy.utils.data import download_file
@@ -82,6 +83,7 @@ class solar_system_ephemeris(ScienceState):
     - 'de430' or 'de432s': short-cuts for recent JPL dynamical models.
     - 'jpl': Alias for the default JPL ephemeris (currently, 'de430').
     - URL: (str) The url to a SPK ephemeris in SPICE binary (.bsp) format.
+    - PATH: (str) File path to a SPK ephemeris in SPICE binary (.bsp) format.
     - `None`: Ensure an Exception is raised without an explicit ephemeris.
 
     The default is 'builtin', which uses the ``epv00`` and ``plan94``
@@ -149,25 +151,29 @@ def _get_kernel(value):
     if value is None or value.lower() == 'builtin':
         return None
 
-    if value.lower() == 'jpl':
-        value = DEFAULT_JPL_EPHEMERIS
-
-    if value.lower() in ('de430', 'de432s'):
-        value = ('http://naif.jpl.nasa.gov/pub/naif/generic_kernels'
-                 '/spk/planets/{:s}.bsp'.format(value.lower()))
-    else:
-        try:
-            urlparse(value)
-        except Exception:
-            raise ValueError('{} was not one of the standard strings and '
-                             'could not be parsed as a URL'.format(value))
-
     try:
         from jplephem.spk import SPK
     except ImportError:
         raise ImportError("Solar system JPL ephemeris calculations require "
                           "the jplephem package "
                           "(https://pypi.python.org/pypi/jplephem)")
+
+    if value.lower() == 'jpl':
+        value = DEFAULT_JPL_EPHEMERIS
+
+    if value.lower() in ('de430', 'de432s'):
+        value = ('http://naif.jpl.nasa.gov/pub/naif/generic_kernels'
+                 '/spk/planets/{:s}.bsp'.format(value.lower()))
+
+    elif os.path.isfile(value):
+        return SPK.open(value)
+
+    else:
+        try:
+            urlparse(value)
+        except Exception:
+            raise ValueError('{} was not one of the standard strings and '
+                             'could not be parsed as a file path or URL'.format(value))
 
     return SPK.open(download_file(value, cache=True))
 
@@ -222,7 +228,7 @@ def _get_body_barycentric_posvel(body, time, ephemeris=None,
         elif body == 'moon':
             if get_velocity:
                 raise KeyError("the Moon's velocity cannot be calculated with "
-                               "the '{0}' ephemeris.".format(ephemeris))
+                               "the '{}' ephemeris.".format(ephemeris))
             return calc_moon(time).cartesian
 
         else:
@@ -233,8 +239,8 @@ def _get_body_barycentric_posvel(body, time, ephemeris=None,
                 try:
                     body_index = PLAN94_BODY_NAME_TO_PLANET_INDEX[body]
                 except KeyError:
-                    raise KeyError("{0}'s position and velocity cannot be "
-                                   "calculated with the '{1}' ephemeris."
+                    raise KeyError("{}'s position and velocity cannot be "
+                                   "calculated with the '{}' ephemeris."
                                    .format(body, ephemeris))
                 body_pv_helio = erfa.plan94(jd1, jd2, body_index)
                 body_pv_bary = erfa.pvppv(body_pv_helio, sun_pv_bary)
@@ -252,8 +258,8 @@ def _get_body_barycentric_posvel(body, time, ephemeris=None,
             try:
                 kernel_spec = BODY_NAME_TO_KERNEL_SPEC[body.lower()]
             except KeyError:
-                raise KeyError("{0}'s position cannot be calculated with "
-                               "the {1} ephemeris.".format(body, ephemeris))
+                raise KeyError("{}'s position cannot be calculated with "
+                               "the {} ephemeris.".format(body, ephemeris))
         else:
             # otherwise, assume the user knows what their doing and intentionally
             # passed in a kernel chain

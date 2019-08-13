@@ -7,8 +7,9 @@ import locale
 import re
 
 import pytest
-from numpy.testing import assert_array_equal, assert_array_almost_equal
 import numpy as np
+from numpy.testing import (assert_array_equal, assert_array_almost_equal,
+                           assert_allclose)
 
 from astropy.tests.helper import raises, catch_warnings
 from astropy.io import fits
@@ -398,7 +399,8 @@ def test_fix():
         'datfix': 'No change',
         'spcfix': 'No change',
         'unitfix': 'No change',
-        'celfix': 'No change'}
+        'celfix': 'No change',
+        'obsfix': 'No change',}
     version = wcs._wcs.__version__
     if version[0] <= "5":
         del fix_ref['obsfix']
@@ -595,8 +597,8 @@ def test_naxis_set():
 def test_obsgeo():
     w = _wcs.Wcsprm()
     assert np.all(np.isnan(w.obsgeo))
-    w.obsgeo = [1, 2, 3]
-    assert_array_equal(w.obsgeo, [1, 2, 3])
+    w.obsgeo = [1, 2, 3, 4, 5, 6]
+    assert_array_equal(w.obsgeo, [1, 2, 3, 4, 5, 6])
     del w.obsgeo
     assert np.all(np.isnan(w.obsgeo))
 
@@ -700,7 +702,7 @@ def test_spcfix():
     # TODO: We need some data with broken spectral headers here to
     # really test
     header = get_pkg_data_contents(
-        'spectra/orion-velo-1.hdr', encoding='binary')
+        'data/spectra/orion-velo-1.hdr', encoding='binary')
     w = _wcs.Wcsprm(header)
     assert w.spcfix() == -1
 
@@ -783,7 +785,7 @@ def test_velosys():
 def test_velref():
     w = _wcs.Wcsprm()
     assert w.velref == 0.0
-    w.velref = 42.0
+    w.velref = 42
     assert w.velref == 42.0
     del w.velref
     assert w.velref == 0.0
@@ -882,7 +884,7 @@ def test_wcs_sub_error_message():
     w = _wcs.Wcsprm()
     with pytest.raises(TypeError) as e:
         w.sub('latitude')
-    assert str(e).endswith("axes must None, a sequence or an integer")
+    assert e.match("axes must None, a sequence or an integer$")
 
 
 def test_wcs_sub():
@@ -1072,7 +1074,7 @@ def test_invalid_args():
         w = _wcs.Wcsprm(naxis=64)
 
     header = get_pkg_data_contents(
-        'spectra/orion-velo-1.hdr', encoding='binary')
+        'data/spectra/orion-velo-1.hdr', encoding='binary')
     with pytest.raises(ValueError):
         w = _wcs.Wcsprm(header, relax='FOO')
 
@@ -1081,3 +1083,72 @@ def test_invalid_args():
 
     with pytest.raises(KeyError):
         w = _wcs.Wcsprm(header, key='A')
+
+
+# Test keywords in the Time standard
+
+
+def test_datebeg():
+    w = _wcs.Wcsprm()
+    assert w.datebeg == ''
+    w.datebeg = '2001-02-11'
+    assert w.datebeg == '2001-02-11'
+    w.datebeg = '31/12/99'
+    fix_ref = {
+        'cdfix': 'No change',
+        'cylfix': 'No change',
+        'obsfix': 'No change',
+        'datfix': "Invalid DATE-BEG format '31/12/99'",
+        'spcfix': 'No change',
+        'unitfix': 'No change',
+        'celfix': 'No change'}
+    assert w.fix() == fix_ref
+
+
+char_keys = ['timesys', 'trefpos', 'trefdir', 'plephem', 'timeunit',
+             'dateref', 'dateavg', 'dateend']
+
+
+@pytest.mark.parametrize('key', char_keys)
+def test_char_keys(key):
+    w = _wcs.Wcsprm()
+    assert getattr(w, key) == ''
+    setattr(w, key, "foo")
+    assert getattr(w, key) == 'foo'
+    with pytest.raises(TypeError):
+        setattr(w, key, 42)
+
+
+num_keys = ['mjdobs', 'mjdbeg', 'mjdend', 'jepoch',
+            'bepoch', 'tstart', 'tstop', 'xposure', 'timsyer',
+            'timrder', 'timedel', 'timepixr', 'timeoffs',
+            'telapse', 'xposure']
+
+
+@pytest.mark.parametrize('key', num_keys)
+def test_num_keys(key):
+    w = _wcs.Wcsprm()
+    assert np.isnan(getattr(w, key))
+    setattr(w, key, 42.0)
+    assert getattr(w, key) == 42.0
+    delattr(w, key)
+    assert np.isnan(getattr(w, key))
+    with pytest.raises(TypeError):
+        setattr(w, key, "foo")
+
+
+array_keys = ['czphs', 'cperi', 'mjdref']
+
+
+@pytest.mark.parametrize('key', array_keys)
+def test_array_keys(key):
+    w = _wcs.Wcsprm()
+    attr = getattr(w, key)
+    assert np.all(np.isnan(attr))
+    assert attr.dtype == float
+    setattr(w, key, [1., 2.])
+    assert_array_equal(getattr(w, key), [1., 2.])
+    with pytest.raises(ValueError):
+        setattr(w, key, ["foo", "bar"])
+    with pytest.raises(ValueError):
+        setattr(w, key, "foo")

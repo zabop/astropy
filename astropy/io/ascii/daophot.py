@@ -314,7 +314,8 @@ class DaophotInputter(core.ContinuationLinesInputter):
 
 class Daophot(core.BaseReader):
     """
-    Read a DAOphot file.
+    DAOphot format table.
+
     Example::
 
       #K MERGERAD   = INDEF                   scaleunit  %-23.7g
@@ -338,7 +339,7 @@ class Daophot(core.BaseReader):
 
       >>> import os
       >>> from astropy.io import ascii
-      >>> filename = os.path.join(ascii.__path__[0], 'tests/t/daophot.dat')
+      >>> filename = os.path.join(ascii.__path__[0], 'tests/data/daophot.dat')
       >>> data = ascii.read(filename)
       >>> for name, keyword in data.meta['keywords'].items():
       ...     print(name, keyword['value'], keyword['units'], keyword['format'])

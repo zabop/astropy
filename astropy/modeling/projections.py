@@ -1992,7 +1992,7 @@ class AffineTransformation2D(Model):
 
         if det == 0:
             raise InputParameterError(
-                "Transformation matrix is singular; {0} model does not "
+                "Transformation matrix is singular; {} model does not "
                 "have an inverse".format(self.__class__.__name__))
 
         matrix = np.linalg.inv(self.matrix.value)
@@ -2018,7 +2018,10 @@ class AffineTransformation2D(Model):
             raise ValueError("Expected input arrays to have the same shape")
 
         shape = x.shape or (1,)
-        inarr = np.vstack([x.flatten(), y.flatten(), np.ones(x.size)])
+        # Use asarray to ensure loose the units.
+        inarr = np.vstack([np.asarray(x).ravel(),
+                           np.asarray(y).ravel(),
+                           np.ones(x.size, x.dtype)])
 
         if inarr.shape[0] != 3 or inarr.ndim != 2:
             raise ValueError("Incompatible input shapes")

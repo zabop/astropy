@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 """
-This package contains the coordinate frames actually implemented by astropy.
+This package contains the coordinate frames implemented by astropy.
 
 Users shouldn't use this module directly, but rather import from the
 `astropy.coordinates` module.  While it is likely to exist for the long-term,
@@ -37,8 +37,7 @@ from .gcrs import GCRS, PrecessedGeocentric
 from .cirs import CIRS
 from .itrs import ITRS
 from .hcrs import HCRS
-from .ecliptic import (GeocentricTrueEcliptic, BarycentricTrueEcliptic,
-                       HeliocentricTrueEcliptic, BaseEclipticFrame)
+from .ecliptic import *  # there are a lot of these so we don't list them all explicitly
 from .skyoffset import SkyOffsetFrame
 # need to import transformations so that they get registered in the graph
 from . import icrs_fk5_transforms
@@ -56,10 +55,13 @@ from astropy.coordinates.baseframe import frame_transform_graph
 # get included
 __all__ = ['ICRS', 'FK5', 'FK4', 'FK4NoETerms', 'Galactic', 'Galactocentric',
            'Supergalactic', 'AltAz', 'GCRS', 'CIRS', 'ITRS', 'HCRS',
-           'PrecessedGeocentric', 'GeocentricTrueEcliptic',
-           'BarycentricTrueEcliptic', 'HeliocentricTrueEcliptic',
+           'PrecessedGeocentric', 'GeocentricMeanEcliptic',
+           'BarycentricMeanEcliptic', 'HeliocentricMeanEcliptic',
+           'GeocentricTrueEcliptic', 'BarycentricTrueEcliptic',
+           'HeliocentricTrueEcliptic',
            'SkyOffsetFrame', 'GalacticLSR', 'LSR',
-           'BaseEclipticFrame', 'BaseRADecFrame', 'make_transform_graph_docs']
+           'BaseEclipticFrame', 'BaseRADecFrame', 'make_transform_graph_docs',
+           'HeliocentricEclipticIAU76', 'CustomBarycentricEcliptic']
 
 
 def make_transform_graph_docs(transform_graph):
@@ -88,13 +90,12 @@ def make_transform_graph_docs(transform_graph):
                                             priorities=False)
 
     docstr = """
-    The diagram below shows all of the coordinate systems built into the
-    `~astropy.coordinates` package, their aliases (useful for converting
-    other coordinates to them using attribute-style access) and the
-    pre-defined transformations between them.  The user is free to
-    override any of these transformations by defining new transformations
-    between these systems, but the pre-defined transformations should be
-    sufficient for typical usage.
+    The diagram below shows all of the built in coordinate systems,
+    their aliases (useful for converting other coordinates to them using
+    attribute-style access) and the pre-defined transformations between
+    them.  The user is free to override any of these transformations by
+    defining new transformations between these systems, but the
+    pre-defined transformations should be sufficient for typical usage.
 
     The color of an edge in the graph (i.e. the transformations between two
     frames) is set by the type of transformation; the legend box defines the
@@ -113,17 +114,17 @@ def make_transform_graph_docs(transform_graph):
     from astropy.coordinates.transformations import trans_to_color
     html_list_items = []
     for cls, color in trans_to_color.items():
-        block = u"""
+        block = """
             <li style='list-style: none;'>
                 <p style="font-size: 12px;line-height: 24px;font-weight: normal;color: #848484;padding: 0;margin: 0;">
-                    <b>{0}:</b>
-                    <span style="font-size: 24px; color: {1};"><b>➝</b></span>
+                    <b>{}:</b>
+                    <span style="font-size: 24px; color: {};"><b>➝</b></span>
                 </p>
             </li>
         """.format(cls.__name__, color)
         html_list_items.append(block)
 
-    graph_legend = u"""
+    graph_legend = """
     .. raw:: html
 
         <ul>
@@ -136,3 +137,7 @@ def make_transform_graph_docs(transform_graph):
 
 
 _transform_graph_docs = make_transform_graph_docs(frame_transform_graph)
+
+# Here, we override the module docstring so that sphinx renders the transform
+# graph without the developer documentation in the main docstring above.
+__doc__ = _transform_graph_docs

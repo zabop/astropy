@@ -5,13 +5,13 @@ import warnings
 import numpy as np
 
 from astropy.utils import isiterable
-from astropy.utils.decorators import deprecated_renamed_argument
 from astropy.utils.exceptions import AstropyUserWarning
 
 
 try:
     import bottleneck  # pylint: disable=W0611
     HAS_BOTTLENECK = True
+    from astropy.units import Quantity
 except ImportError:
     HAS_BOTTLENECK = False
 
@@ -38,12 +38,9 @@ def _move_tuple_axes_first(array, axis):
     # Reorder the array so that the axes being operated on are at the beginning
     array_new = np.moveaxis(array, axis, destination)
 
-    # Figure out the size of the product of the dimensions being operated on
-    first = np.prod(array_new.shape[:naxis])
-
     # Collapse the dimensions being operated on into a single dimension so that
     # we can then use axis=0 with the bottleneck functions
-    array_new = array_new.reshape((first,) + array_new.shape[naxis:])
+    array_new = array_new.reshape((-1,) + array_new.shape[naxis:])
 
     return array_new
 
@@ -54,7 +51,11 @@ def _nanmean(array, axis=None):
     if isinstance(axis, tuple):
         array = _move_tuple_axes_first(array, axis=axis)
         axis = 0
-    return bottleneck.nanmean(array, axis=axis)
+
+    if isinstance(array, Quantity):
+        return array.__array_wrap__(bottleneck.nanmean(array, axis=axis))
+    else:
+        return bottleneck.nanmean(array, axis=axis)
 
 
 def _nanmedian(array, axis=None):
@@ -63,7 +64,11 @@ def _nanmedian(array, axis=None):
     if isinstance(axis, tuple):
         array = _move_tuple_axes_first(array, axis=axis)
         axis = 0
-    return bottleneck.nanmedian(array, axis=axis)
+
+    if isinstance(array, Quantity):
+        return array.__array_wrap__(bottleneck.nanmedian(array, axis=axis))
+    else:
+        return bottleneck.nanmedian(array, axis=axis)
 
 
 def _nanstd(array, axis=None, ddof=0):
@@ -72,7 +77,12 @@ def _nanstd(array, axis=None, ddof=0):
     if isinstance(axis, tuple):
         array = _move_tuple_axes_first(array, axis=axis)
         axis = 0
-    return bottleneck.nanstd(array, axis=axis, ddof=ddof)
+
+    if isinstance(array, Quantity):
+        return array.__array_wrap__(bottleneck.nanstd(array, axis=axis,
+                                                      ddof=ddof))
+    else:
+        return bottleneck.nanstd(array, axis=axis, ddof=ddof)
 
 
 class SigmaClip:
@@ -196,7 +206,6 @@ class SigmaClip:
     standard deviation is higher.
     """
 
-    @deprecated_renamed_argument('iters', 'maxiters', '3.1')
     def __init__(self, sigma=3., sigma_lower=None, sigma_upper=None,
                  maxiters=5, cenfunc='median', stdfunc='std'):
 
@@ -208,8 +217,8 @@ class SigmaClip:
         self.stdfunc = self._parse_stdfunc(stdfunc)
 
     def __repr__(self):
-        return ('SigmaClip(sigma={0}, sigma_lower={1}, sigma_upper={2}, '
-                'maxiters={3}, cenfunc={4}, stdfunc={5})'
+        return ('SigmaClip(sigma={}, sigma_lower={}, sigma_upper={}, '
+                'maxiters={}, cenfunc={}, stdfunc={})'
                 .format(self.sigma, self.sigma_lower, self.sigma_upper,
                         self.maxiters, self.cenfunc, self.stdfunc))
 
@@ -218,7 +227,7 @@ class SigmaClip:
         attrs = ['sigma', 'sigma_lower', 'sigma_upper', 'maxiters', 'cenfunc',
                  'stdfunc']
         for attr in attrs:
-            lines.append('    {0}: {1}'.format(attr, getattr(self, attr)))
+            lines.append('    {}: {}'.format(attr, getattr(self, attr)))
         return '\n'.join(lines)
 
     def _parse_cenfunc(self, cenfunc):
@@ -236,14 +245,14 @@ class SigmaClip:
                     cenfunc = np.nanmean  # pragma: no cover
 
             else:
-                raise ValueError('{} is an invalid cenfunc.'.format(cenfunc))
+                raise ValueError(f'{cenfunc} is an invalid cenfunc.')
 
         return cenfunc
 
     def _parse_stdfunc(self, stdfunc):
         if isinstance(stdfunc, str):
             if stdfunc != 'std':
-                raise ValueError('{} is an invalid stdfunc.'.format(stdfunc))
+                raise ValueError(f'{stdfunc} is an invalid stdfunc.')
 
             if HAS_BOTTLENECK:
                 stdfunc = _nanstd
@@ -463,7 +472,6 @@ class SigmaClip:
                                             copy=copy)
 
 
-@deprecated_renamed_argument('iters', 'maxiters', '3.1')
 def sigma_clip(data, sigma=3, sigma_lower=None, sigma_upper=None, maxiters=5,
                cenfunc='median', stdfunc='std', axis=None, masked=True,
                return_bounds=False, copy=True):
@@ -640,7 +648,6 @@ def sigma_clip(data, sigma=3, sigma_lower=None, sigma_upper=None, maxiters=5,
                    return_bounds=return_bounds, copy=copy)
 
 
-@deprecated_renamed_argument('iters', 'maxiters', '3.1')
 def sigma_clipped_stats(data, mask=None, mask_value=None, sigma=3.0,
                         sigma_lower=None, sigma_upper=None, maxiters=5,
                         cenfunc='median', stdfunc='std', std_ddof=0,

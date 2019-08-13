@@ -1,6 +1,5 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
 import copy
 import functools
 import datetime
@@ -10,9 +9,10 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from astropy.tests.helper import catch_warnings, pytest
-from astropy.utils.exceptions import AstropyDeprecationWarning
-from astropy.utils import isiterable
-from astropy.time import Time, ScaleValueError, STANDARD_TIME_SCALES, TimeString, TimezoneInfo
+from astropy.utils.exceptions import AstropyDeprecationWarning, ErfaWarning
+from astropy.utils import isiterable, iers
+from astropy.time import (Time, TimeDelta, ScaleValueError, STANDARD_TIME_SCALES,
+                          TimeString, TimezoneInfo)
 from astropy.coordinates import EarthLocation
 from astropy import units as u
 from astropy import _erfa as erfa
@@ -41,7 +41,7 @@ def teardown_function(func):
     Time.FORMATS.update(func.FORMATS_ORIG)
 
 
-class TestBasic():
+class TestBasic:
     """Basic tests stemming from initial example and API reference"""
 
     def test_simple(self):
@@ -92,6 +92,25 @@ class TestBasic():
         t4 = Time(val, val2, format='jd')
         assert t4.isscalar is False
         assert t4.shape == np.broadcast(val, val2).shape
+
+    @pytest.mark.parametrize('format_', Time.FORMATS)
+    def test_empty_value(self, format_):
+        t = Time([], format=format_)
+        assert t.size == 0
+        assert t.shape == (0,)
+        assert t.format == format_
+        t_value = t.value
+        assert t_value.size == 0
+        assert t_value.shape == (0,)
+        t2 = Time(t_value, format=format_)
+        assert t2.size == 0
+        assert t2.shape == (0,)
+        assert t2.format == format_
+        t3 = t2.tai
+        assert t3.size == 0
+        assert t3.shape == (0,)
+        assert t3.format == format_
+        assert t3.scale == 'tai'
 
     @pytest.mark.parametrize('value', [2455197.5, [2455197.5]])
     def test_copy_time(self, value):
@@ -319,18 +338,19 @@ class TestBasic():
         converted to local scales"""
         lat = 19.48125
         lon = -155.933222
-        for scale1 in STANDARD_TIME_SCALES:
-            t1 = Time('2006-01-15 21:24:37.5', format='iso', scale=scale1,
-                      location=(lon, lat))
-            for scale2 in STANDARD_TIME_SCALES:
-                t2 = getattr(t1, scale2)
-                t21 = getattr(t2, scale1)
-                assert allclose_jd(t21.jd, t1.jd)
+        with iers.conf.set_temp('auto_download', False):
+            for scale1 in STANDARD_TIME_SCALES:
+                t1 = Time('2006-01-15 21:24:37.5', format='iso', scale=scale1,
+                          location=(lon, lat))
+                for scale2 in STANDARD_TIME_SCALES:
+                    t2 = getattr(t1, scale2)
+                    t21 = getattr(t2, scale1)
+                    assert allclose_jd(t21.jd, t1.jd)
 
-            # test for conversion to local scale
-            scale3 = 'local'
-            with pytest.raises(ScaleValueError):
-                t2 = getattr(t1, scale3)
+                # test for conversion to local scale
+                scale3 = 'local'
+                with pytest.raises(ScaleValueError):
+                    t2 = getattr(t1, scale3)
 
     def test_creating_all_formats(self):
         """Create a time object using each defined format"""
@@ -477,6 +497,8 @@ class TestBasic():
             Time(times, format='iso', scale='utc')
         with pytest.raises(ValueError):
             Time('2000:001', format='jd', scale='utc')
+        with pytest.raises(ValueError):  # unguessable
+            Time([])
         with pytest.raises(ValueError):
             Time([50000.0], ['bad'], format='mjd', scale='tai')
         with pytest.raises(ValueError):
@@ -487,7 +509,8 @@ class TestBasic():
         with pytest.raises(ValueError):
             Time(np.nan, format='jd', scale='utc')
         with pytest.raises(ValueError):
-            Time('2000-01-02T03:04:05(TAI)', scale='utc')
+            with pytest.warns(AstropyDeprecationWarning):
+                Time('2000-01-02T03:04:05(TAI)', scale='utc')
         with pytest.raises(ValueError):
             Time('2000-01-02T03:04:05(TAI')
         with pytest.raises(ValueError):
@@ -498,9 +521,10 @@ class TestBasic():
         uses the 2012-06-30 leap second for testing."""
         for year, month, day in ((2012, 6, 30), (2016, 12, 31)):
             # Start with a day without a leap second and note rollover
-            yyyy_mm = '{:04d}-{:02d}'.format(year, month)
-            yyyy_mm_dd = '{:04d}-{:02d}-{:02d}'.format(year, month, day)
-            t1 = Time(yyyy_mm + '-01 23:59:60.0', scale='utc')
+            yyyy_mm = f'{year:04d}-{month:02d}'
+            yyyy_mm_dd = f'{year:04d}-{month:02d}-{day:02d}'
+            with pytest.warns(ErfaWarning):
+                t1 = Time(yyyy_mm + '-01 23:59:60.0', scale='utc')
             assert t1.iso == yyyy_mm + '-02 00:00:00.000'
 
             # Leap second is different
@@ -514,11 +538,12 @@ class TestBasic():
             assert t1.iso == yyyy_mm_dd + ' 23:59:60.999'
 
             if month == 6:
-                yyyy_mm_dd_plus1 = '{:04d}-07-01'.format(year)
+                yyyy_mm_dd_plus1 = f'{year:04d}-07-01'
             else:
                 yyyy_mm_dd_plus1 = '{:04d}-01-01'.format(year+1)
 
-            t1 = Time(yyyy_mm_dd + ' 23:59:61.0', scale='utc')
+            with pytest.warns(ErfaWarning):
+                t1 = Time(yyyy_mm_dd + ' 23:59:61.0', scale='utc')
             assert t1.iso == yyyy_mm_dd_plus1 + ' 00:00:00.000'
 
             # Delta time gives 2 seconds here as expected
@@ -570,7 +595,7 @@ class TestBasic():
             t6 = Time(t1, scale='local')
 
 
-class TestVal2():
+class TestVal2:
     """Tests related to val2"""
 
     def test_val2_ignored(self):
@@ -593,7 +618,7 @@ class TestVal2():
             Time([0.0, 50000.0], [0.0, 1.0, 2.0], format='mjd', scale='tai')
 
 
-class TestSubFormat():
+class TestSubFormat:
     """Test input and output subformat functionality"""
 
     def test_input_subformat(self):
@@ -743,12 +768,14 @@ class TestSubFormat():
         t = Time(100.0, format='gps')
         assert t.scale == 'tai'
 
-        for date in ('J2000', '2000:001', '2000-01-01T00:00:00'):
+        for date in ('2000:001', '2000-01-01T00:00:00'):
             t = Time(date)
             assert t.scale == 'utc'
 
         t = Time(2000.1, format='byear')
-        assert t.scale == 'utc'
+        assert t.scale == 'tt'
+        t = Time('J2000')
+        assert t.scale == 'tt'
 
     def test_epoch_times(self):
         """Test time formats derived from EpochFromTime"""
@@ -793,7 +820,7 @@ class TestSubFormat():
         assert allclose_sec(t.unix, 1095379199.0)
 
 
-class TestSofaErrors():
+class TestSofaErrors:
     """Test that erfa status return values are handled correctly"""
 
     def test_bad_time(self):
@@ -818,7 +845,7 @@ class TestSofaErrors():
         assert allclose_jd(djm, [53574.])
 
 
-class TestCopyReplicate():
+class TestCopyReplicate:
     """Test issues related to copying and replicating data"""
 
     def test_immutable_input(self):
@@ -934,11 +961,11 @@ def test_decimalyear():
 
 
 def test_fits_year0():
-    t = Time(1721425.5, format='jd')
+    t = Time(1721425.5, format='jd', scale='tai')
     assert t.fits == '0001-01-01T00:00:00.000'
-    t = Time(1721425.5 - 366., format='jd')
+    t = Time(1721425.5 - 366., format='jd', scale='tai')
     assert t.fits == '+00000-01-01T00:00:00.000'
-    t = Time(1721425.5 - 366. - 365., format='jd')
+    t = Time(1721425.5 - 366. - 365., format='jd', scale='tai')
     assert t.fits == '-00001-01-01T00:00:00.000'
 
 
@@ -981,7 +1008,7 @@ def test_len_size():
         len(t4)
     # Ensure we're not just getting the old error of
     # "object of type 'float' has no len()".
-    assert 'Time' in str(err)
+    assert 'Time' in str(err.value)
 
 
 def test_TimeFormat_scale():
@@ -989,8 +1016,9 @@ def test_TimeFormat_scale():
     attributes (delta_ut1_utc here), preventing conversion to unix, cxc"""
     t = Time('1900-01-01', scale='ut1')
     t.delta_ut1_utc = 0.0
-    t.unix
-    assert t.unix == t.utc.unix
+    with pytest.warns(ErfaWarning):
+        t.unix
+        assert t.unix == t.utc.unix
 
 
 @pytest.mark.remote_data
@@ -1095,7 +1123,7 @@ def test_replicate_value_error():
     t1 = Time('2007:001', scale='tai')
     with pytest.raises(ValueError) as err:
         t1.replicate(format='definitely_not_a_valid_format')
-    assert 'format must be one of' in str(err)
+    assert 'format must be one of' in str(err.value)
 
 
 def test_remove_astropy_time():
@@ -1107,7 +1135,7 @@ def test_remove_astropy_time():
     assert 'astropy_time' not in t1.FORMATS
     with pytest.raises(ValueError) as err:
         Time(t1, format='astropy_time')
-    assert 'format must be one of' in str(err)
+    assert 'format must be one of' in str(err.value)
 
 
 def test_isiterable():
@@ -1146,9 +1174,8 @@ def test_to_datetime():
         assert tz.tzname(dt) == tz_dt.tzname()
     assert np.all(time == forced_to_astropy_time)
 
-    with pytest.raises(ValueError) as e:
+    with pytest.raises(ValueError, match=r'does not support leap seconds'):
         Time('2015-06-30 23:59:60.000').to_datetime()
-        assert 'does not support leap seconds' in str(e.message)
 
 
 @pytest.mark.skipif('not HAS_PYTZ')
@@ -1228,7 +1255,7 @@ def test_sum_is_equivalent():
 def test_string_valued_columns():
     # Columns have a nice shim that translates bytes to string as needed.
     # Ensure Time can handle these.  Use multi-d array just to be sure.
-    times = [[['{:04d}-{:02d}-{:02d}'.format(y, m, d) for d in range(1, 3)]
+    times = [[[f'{y:04d}-{m:02d}-{d:02d}' for d in range(1, 3)]
               for m in range(5, 7)] for y in range(2012, 2014)]
     cutf32 = Column(times)
     cbytes = cutf32.astype('S')
@@ -1264,11 +1291,11 @@ def test_writeable_flag():
     t.writeable = False
     with pytest.raises(ValueError) as err:
         t[1] = 5.0
-    assert 'Time object is read-only. Make a copy()' in str(err)
+    assert 'Time object is read-only. Make a copy()' in str(err.value)
 
     with pytest.raises(ValueError) as err:
         t[:] = 5.0
-    assert 'Time object is read-only. Make a copy()' in str(err)
+    assert 'Time object is read-only. Make a copy()' in str(err.value)
 
     t.writeable = True
     t[1] = 10.0
@@ -1278,14 +1305,14 @@ def test_writeable_flag():
     t = Time('2000:001', scale='utc')
     with pytest.raises(ValueError) as err:
         t[()] = '2000:002'
-    assert 'scalar Time object is read-only.' in str(err)
+    assert 'scalar Time object is read-only.' in str(err.value)
 
     # Transformed attribute is not writeable
     t = Time(['2000:001', '2000:002'], scale='utc')
     t2 = t.tt  # t2 is read-only now because t.tt is cached
     with pytest.raises(ValueError) as err:
         t2[0] = '2005:001'
-    assert 'Time object is read-only. Make a copy()' in str(err)
+    assert 'Time object is read-only. Make a copy()' in str(err.value)
 
 
 def test_setitem_location():
@@ -1302,7 +1329,7 @@ def test_setitem_location():
         t[0, 0] = Time(-1, format='cxcsec')
     assert ('cannot set to Time with different location: '
             'expected location={} and '
-            'got location=None'.format(loc[0])) in str(err)
+            'got location=None'.format(loc[0])) in str(err.value)
 
     # Succeeds because the right hand side correctly sets location
     t[0, 0] = Time(-2, format='cxcsec', location=loc[0])
@@ -1313,7 +1340,7 @@ def test_setitem_location():
         t[0, 0] = Time(-2, format='cxcsec', location=loc[1])
     assert ('cannot set to Time with different location: '
             'expected location={} and '
-            'got location={}'.format(loc[0], loc[1])) in str(err)
+            'got location={}'.format(loc[0], loc[1])) in str(err.value)
 
     # Fails because the Time has None location and RHS has defined location
     t = Time([[1, 2], [3, 4]], format='cxcsec')
@@ -1321,7 +1348,7 @@ def test_setitem_location():
         t[0, 0] = Time(-2, format='cxcsec', location=loc[1])
     assert ('cannot set to Time with different location: '
             'expected location=None and '
-            'got location={}'.format(loc[1])) in str(err)
+            'got location={}'.format(loc[1])) in str(err.value)
 
     # Broadcasting works
     t = Time([[1, 2], [3, 4]], format='cxcsec', location=loc)
@@ -1362,7 +1389,7 @@ def test_setitem_from_python_objects():
     t[0] = '2001:001'
     with pytest.raises(ValueError) as err:
         t[0] = 100
-    assert 'cannot convert value to a compatible Time object' in str(err)
+    assert 'cannot convert value to a compatible Time object' in str(err.value)
 
 
 def test_setitem_from_time_objects():
@@ -1514,8 +1541,9 @@ def test_strptime_leapsecond():
 
 
 def test_strptime_3_digit_year():
-    time_obj1 = Time('0995-12-31T00:00:00', format='isot')
-    time_obj2 = Time.strptime('0995-Dec-31 00:00:00', '%Y-%b-%d %H:%M:%S')
+    time_obj1 = Time('0995-12-31T00:00:00', format='isot', scale='tai')
+    time_obj2 = Time.strptime('0995-Dec-31 00:00:00', '%Y-%b-%d %H:%M:%S',
+                              scale='tai')
 
     assert time_obj1 == time_obj2
 
@@ -1611,20 +1639,20 @@ def test_insert_exceptions():
     tm = Time(1, format='unix')
     with pytest.raises(TypeError) as err:
         tm.insert(0, 50)
-    assert 'cannot insert into scalar' in str(err)
+    assert 'cannot insert into scalar' in str(err.value)
 
     tm = Time([1, 2], format='unix')
     with pytest.raises(ValueError) as err:
         tm.insert(0, 50, axis=1)
-    assert 'axis must be 0' in str(err)
+    assert 'axis must be 0' in str(err.value)
 
     with pytest.raises(TypeError) as err:
         tm.insert(slice(None), 50)
-    assert 'obj arg must be an integer' in str(err)
+    assert 'obj arg must be an integer' in str(err.value)
 
     with pytest.raises(IndexError) as err:
         tm.insert(-100, 50)
-    assert 'index -100 is out of bounds for axis 0 with size 2' in str(err)
+    assert 'index -100 is out of bounds for axis 0 with size 2' in str(err.value)
 
 
 def test_datetime64_no_format():
@@ -1633,3 +1661,52 @@ def test_datetime64_no_format():
     assert t.iso == '2000-01-02 03:04:05.123456789'
     assert t.datetime64 == dt64
     assert t.value == dt64
+
+
+def test_hash_time():
+    loc1 = EarthLocation(1 * u.m, 2 * u.m, 3 * u.m)
+    for loc in None, loc1:
+        t = Time([1, 1, 2, 3], format='cxcsec', location=loc)
+        t[3] = np.ma.masked
+        h1 = hash(t[0])
+        h2 = hash(t[1])
+        h3 = hash(t[2])
+        assert h1 == h2
+        assert h1 != h3
+
+        with pytest.raises(TypeError) as exc:
+            hash(t)
+        assert exc.value.args[0] == "unhashable type: 'Time' (must be scalar)"
+
+        with pytest.raises(TypeError) as exc:
+            hash(t[3])
+        assert exc.value.args[0] == "unhashable type: 'Time' (value is masked)"
+
+    t = Time(1, format='cxcsec', location=loc)
+    t2 = Time(1, format='cxcsec')
+
+    assert hash(t) != hash(t2)
+
+    t = Time('2000:180', scale='utc')
+    t2 = Time(t, scale='tai')
+    assert t == t2
+    assert hash(t) != hash(t2)
+
+
+def test_hash_time_delta():
+
+    t = TimeDelta([1, 1, 2, 3], format='sec')
+    t[3] = np.ma.masked
+    h1 = hash(t[0])
+    h2 = hash(t[1])
+    h3 = hash(t[2])
+    assert h1 == h2
+    assert h1 != h3
+
+    with pytest.raises(TypeError) as exc:
+        hash(t)
+    assert exc.value.args[0] == "unhashable type: 'TimeDelta' (must be scalar)"
+
+    with pytest.raises(TypeError) as exc:
+        hash(t[3])
+    assert exc.value.args[0] == "unhashable type: 'TimeDelta' (value is masked)"

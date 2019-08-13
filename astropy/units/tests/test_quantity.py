@@ -7,6 +7,7 @@
 import copy
 import pickle
 import decimal
+import numbers
 from fractions import Fraction
 
 import pytest
@@ -138,10 +139,13 @@ class TestQuantityCreation:
         assert q2.value == float(q1.value)
         assert q2.unit == q1.unit
 
-        # but we should preserve float32
-        a3 = np.array([1., 2.], dtype=np.float32)
-        q3 = u.Quantity(a3, u.yr)
-        assert q3.dtype == a3.dtype
+        # but we should preserve any float32 or even float16
+        a3_32 = np.array([1., 2.], dtype=np.float32)
+        q3_32 = u.Quantity(a3_32, u.yr)
+        assert q3_32.dtype == a3_32.dtype
+        a3_16 = np.array([1., 2.], dtype=np.float16)
+        q3_16 = u.Quantity(a3_16, u.yr)
+        assert q3_16.dtype == a3_16.dtype
         # items stored as objects by numpy should be converted to float
         # by default
         q4 = u.Quantity(decimal.Decimal('10.25'), u.m)
@@ -496,11 +500,10 @@ class TestQuantityOperations:
 
     def test_non_number_type(self):
         q1 = u.Quantity(11.412, unit=u.meter)
-        type_err_msg = ("Unsupported operand type(s) for ufunc add: "
-                        "'Quantity' and 'dict'")
         with pytest.raises(TypeError) as exc:
             q1 + {'a': 1}
-        assert exc.value.args[0] == type_err_msg
+        assert exc.value.args[0].startswith(
+            "Unsupported operand type(s) for ufunc add:")
 
         with pytest.raises(TypeError):
             q1 + u.meter
@@ -797,11 +800,51 @@ def test_cgs():
 class TestQuantityComparison:
 
     def test_quantity_equality(self):
-        assert u.Quantity(1000, unit='m') == u.Quantity(1, unit='km')
-        assert not (u.Quantity(1, unit='m') == u.Quantity(1, unit='km'))
-        # for ==, !=, return False, True if units do not match
-        assert (u.Quantity(1100, unit=u.m) != u.Quantity(1, unit=u.s)) is True
-        assert (u.Quantity(1100, unit=u.m) == u.Quantity(1, unit=u.s)) is False
+        with catch_warnings(DeprecationWarning) as w:
+            assert u.Quantity(1000, unit='m') == u.Quantity(1, unit='km')
+            assert not (u.Quantity(1, unit='m') == u.Quantity(1, unit='km'))
+            # for ==, !=, return False, True if units do not match
+            assert (u.Quantity(1100, unit=u.m) != u.Quantity(1, unit=u.s)) is True
+            assert (u.Quantity(1100, unit=u.m) == u.Quantity(1, unit=u.s)) is False
+            assert (u.Quantity(0, unit=u.m) == u.Quantity(0, unit=u.s)) is False
+            # But allow comparison with 0, +/-inf if latter unitless
+            assert u.Quantity(0, u.m) == 0.
+            assert u.Quantity(1, u.m) != 0.
+            assert u.Quantity(1, u.m) != np.inf
+            assert u.Quantity(np.inf, u.m) == np.inf
+        assert len(w) == 0
+
+    def test_quantity_equality_array(self):
+        with catch_warnings(DeprecationWarning) as w:
+            a = u.Quantity([0., 1., 1000.], u.m)
+            b = u.Quantity(1., u.km)
+            eq = a == b
+            ne = a != b
+            assert np.all(eq == [False, False, True])
+            assert np.all(eq != ne)
+            # For mismatched units, we should just get True, False
+            c = u.Quantity(1., u.s)
+            eq = a == c
+            ne = a != c
+            assert eq is False
+            assert ne is True
+            # Constants are treated as dimensionless, so False too.
+            eq = a == 1.
+            ne = a != 1.
+            assert eq is False
+            assert ne is True
+            # But 0 can have any units, so we can compare.
+            eq = a == 0
+            ne = a != 0
+            assert np.all(eq == [True, False, False])
+            assert np.all(eq != ne)
+            # But we do not extend that to arrays; they should have the same unit.
+            d = np.array([0, 1., 1000.])
+            eq = a == d
+            ne = a != d
+            assert eq is False
+            assert ne is True
+        assert len(w) == 0
 
     def test_quantity_comparison(self):
         assert u.Quantity(1100, unit=u.meter) > u.Quantity(1, unit=u.kilometer)
@@ -894,6 +937,24 @@ class TestQuantityDisplay:
         bad_quantity = np.arange(10.).view(u.Quantity)
         assert str(bad_quantity).endswith(_UNIT_NOT_INITIALISED)
         assert repr(bad_quantity).endswith(_UNIT_NOT_INITIALISED + '>')
+
+    def test_to_string(self):
+        qscalar = u.Quantity(1.5e14, 'm/s')
+
+        # __str__ is the default `format`
+        assert str(qscalar) == qscalar.to_string()
+
+        res = 'Quantity as KMS: 150000000000.0 km / s'
+        assert "Quantity as KMS: {}".format(qscalar.to_string(unit=u.km / u.s)) == res
+
+        res = r'$1.5 \times 10^{14} \; \mathrm{\frac{m}{s}}$'
+        assert qscalar.to_string(format="latex") == res
+
+        res = r'$1.5 \times 10^{14} \; \mathrm{\frac{m}{s}}$'
+        assert qscalar.to_string(format="latex", subfmt="inline") == res
+
+        res = r'$\displaystyle 1.5 \times 10^{14} \; \mathrm{\frac{m}{s}}$'
+        assert qscalar.to_string(format="latex", subfmt="display") == res
 
     def test_repr_latex(self):
         from astropy.units.quantity import conf
@@ -1018,7 +1079,7 @@ def test_arrays():
         len(qseclen0array)
     with pytest.raises(TypeError):
         qseclen0array[0]
-    assert isinstance(qseclen0array.value, int)
+    assert isinstance(qseclen0array.value, numbers.Integral)
 
     a = np.array([(1., 2., 3.), (4., 5., 6.), (7., 8., 9.)],
                  dtype=[('x', float),
@@ -1330,17 +1391,13 @@ def test_quantity_fraction_power():
     assert q.dtype.kind == 'f'
 
 
-def test_inherit_docstrings():
-    assert u.Quantity.argmax.__doc__ == np.ndarray.argmax.__doc__
-
-
 def test_quantity_from_table():
     """
     Checks that units from tables are respected when converted to a Quantity.
     This also generically checks the use of *anything* with a `unit` attribute
     passed into Quantity
     """
-    from... table import Table
+    from astropy.table import Table
 
     t = Table(data=[np.arange(5), np.arange(5)], names=['a', 'b'])
     t['a'].unit = u.kpc
@@ -1501,29 +1558,6 @@ class TestSpecificTypeQuantity:
         assert type(res2) is u.Quantity
 
 
-@pytest.mark.skipif('not HAS_MATPLOTLIB')
-@pytest.mark.xfail('MATPLOTLIB_LT_15')
-class TestQuantityMatplotlib:
-    """Test if passing matplotlib quantities works.
-
-    TODO: create PNG output and check against reference image
-          once `astropy.wcsaxes` is merged, which provides
-          the machinery for this.
-
-    See https://github.com/astropy/astropy/issues/1881
-    See https://github.com/astropy/astropy/pull/2139
-    """
-
-    def test_plot(self):
-        data = u.Quantity([4, 5, 6], 's')
-        plt.plot(data)
-
-    def test_scatter(self):
-        x = u.Quantity([4, 5, 6], 'second')
-        y = [1, 3, 4] * u.m
-        plt.scatter(x, y)
-
-
 def test_unit_class_override():
     class MyQuantity(u.Quantity):
         pass
@@ -1534,3 +1568,42 @@ def test_unit_class_override():
     assert type(q1) is u.Quantity
     q2 = u.Quantity(1., my_unit, subok=True)
     assert type(q2) is MyQuantity
+
+
+class QuantityMimic:
+    def __init__(self, value, unit):
+        self.value = value
+        self.unit = unit
+
+    def __array__(self):
+        return np.array(self.value)
+
+
+class QuantityMimic2(QuantityMimic):
+    def to(self, unit):
+        return u.Quantity(self.value, self.unit).to(unit)
+
+    def to_value(self, unit):
+        return u.Quantity(self.value, self.unit).to_value(unit)
+
+
+class TestQuantityMimics:
+    """Test Quantity Mimics that are not ndarray subclasses."""
+    @pytest.mark.parametrize('Mimic', (QuantityMimic, QuantityMimic2))
+    def test_mimic_input(self, Mimic):
+        value = np.arange(10.)
+        mimic = Mimic(value, u.m)
+        q = u.Quantity(mimic)
+        assert q.unit == u.m
+        assert np.all(q.value == value)
+        q2 = u.Quantity(mimic, u.cm)
+        assert q2.unit == u.cm
+        assert np.all(q2.value == 100 * value)
+
+    @pytest.mark.parametrize('Mimic', (QuantityMimic, QuantityMimic2))
+    def test_mimic_setting(self, Mimic):
+        mimic = Mimic([1., 2.], u.m)
+        q = u.Quantity(np.arange(10.), u.cm)
+        q[8:] = mimic
+        assert np.all(q[:8].value == np.arange(8.))
+        assert np.all(q[8:].value == [100., 200.])

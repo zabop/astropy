@@ -11,12 +11,15 @@ from astropy.time import Time
 from astropy import units as u
 
 from astropy.wcs.wcs import WCS, Sip, WCSSUB_LONGITUDE, WCSSUB_LATITUDE
-from astropy.wcs.utils import (proj_plane_pixel_scales, proj_plane_pixel_area,
-                     is_proj_plane_distorted,
-                     non_celestial_pixel_scales, wcs_to_celestial_frame,
-                     celestial_frame_to_wcs, skycoord_to_pixel,
-                     pixel_to_skycoord, custom_wcs_to_frame_mappings,
-                     custom_frame_to_wcs_mappings, add_stokes_axis_to_wcs)
+from astropy.wcs.wcsapi.fitswcs import SlicedFITSWCS
+from astropy.wcs.utils import (proj_plane_pixel_scales,
+                               is_proj_plane_distorted,
+                               non_celestial_pixel_scales,
+                               wcs_to_celestial_frame,
+                               celestial_frame_to_wcs, skycoord_to_pixel,
+                               pixel_to_skycoord, custom_wcs_to_frame_mappings,
+                               custom_frame_to_wcs_mappings,
+                               add_stokes_axis_to_wcs)
 
 
 def test_wcs_dropping():
@@ -197,20 +200,15 @@ def test_slice_fitsorder():
     assert np.all(slice_wcs.wcs.cdelt == np.array([0.2, 0.1]))
 
 
-def test_invalid_slice():
+def test_slice_wcs():
     mywcs = WCS(naxis=2)
 
-    with pytest.raises(ValueError) as exc:
-        mywcs[0]
-    assert exc.value.args[0] == ("Cannot downsample a WCS with indexing.  Use "
-                                 "wcs.sub or wcs.dropaxis if you want to remove "
-                                 "axes.")
+    sub = mywcs[0]
+    assert isinstance(sub, SlicedFITSWCS)
 
     with pytest.raises(ValueError) as exc:
         mywcs[0, ::2]
-    assert exc.value.args[0] == ("Cannot downsample a WCS with indexing.  Use "
-                                 "wcs.sub or wcs.dropaxis if you want to remove "
-                                 "axes.")
+    assert exc.value.args[0] == "Slicing WCS with a step is not supported."
 
 
 def test_axis_names():
@@ -316,6 +314,22 @@ def test_wcs_to_celestial_frame():
     assert isinstance(frame, Galactic)
 
 
+def test_wcs_to_celestial_frame_correlated():
+
+    # Regression test for a bug that caused wcs_to_celestial_frame to fail when
+    # the celestial axes were correlated with other axes.
+
+    # Import astropy.coordinates here to avoid circular imports
+    from astropy.coordinates.builtin_frames import ICRS
+
+    mywcs = WCS(naxis=3)
+    mywcs.wcs.ctype = 'RA---TAN', 'DEC--TAN', 'FREQ'
+    mywcs.wcs.cd = np.ones((3, 3))
+    mywcs.wcs.set()
+    frame = wcs_to_celestial_frame(mywcs)
+    assert isinstance(frame, ICRS)
+
+
 def test_wcs_to_celestial_frame_extend():
 
     mywcs = WCS(naxis=2)
@@ -409,7 +423,7 @@ def test_celestial_frame_to_wcs():
     mywcs = celestial_frame_to_wcs(frame, projection='CAR')
     assert tuple(mywcs.wcs.ctype) == ('TLON-CAR', 'TLAT-CAR')
     assert mywcs.wcs.radesys == 'ITRS'
-    assert mywcs.wcs.dateobs == Time('J2000').utc.isot
+    assert mywcs.wcs.dateobs == Time('J2000').utc.fits
 
 
 def test_celestial_frame_to_wcs_extend():
@@ -524,6 +538,16 @@ def test_has_celestial(ctype, cel):
     assert mywcs.has_celestial == cel
 
 
+def test_has_celestial_correlated():
+    # Regression test for astropy/astropy#8416 - has_celestial failed when
+    # celestial axes were correlated with other axes.
+    mywcs = WCS(naxis=3)
+    mywcs.wcs.ctype = 'RA---TAN', 'DEC--TAN', 'FREQ'
+    mywcs.wcs.cd = np.ones((3, 3))
+    mywcs.wcs.set()
+    assert mywcs.has_celestial
+
+
 @pytest.mark.parametrize(('cdelt', 'pc', 'cd'),
                          ((np.array([0.1, 0.2]), np.eye(2), np.eye(2)),
                           (np.array([1, 1]), np.diag([0.1, 0.2]), np.eye(2)),
@@ -552,7 +576,7 @@ def test_skycoord_to_pixel(mode):
     # Import astropy.coordinates here to avoid circular imports
     from astropy.coordinates import SkyCoord
 
-    header = get_pkg_data_contents('maps/1904-66_TAN.hdr', encoding='binary')
+    header = get_pkg_data_contents('data/maps/1904-66_TAN.hdr', encoding='binary')
     wcs = WCS(header)
 
     ref = SkyCoord(0.1 * u.deg, -89. * u.deg, frame='icrs')
@@ -586,7 +610,7 @@ def test_skycoord_to_pixel_swapped():
     # Import astropy.coordinates here to avoid circular imports
     from astropy.coordinates import SkyCoord
 
-    header = get_pkg_data_contents('maps/1904-66_TAN.hdr', encoding='binary')
+    header = get_pkg_data_contents('data/maps/1904-66_TAN.hdr', encoding='binary')
     wcs = WCS(header)
 
     wcs_swapped = wcs.sub([WCSSUB_LATITUDE, WCSSUB_LONGITUDE])

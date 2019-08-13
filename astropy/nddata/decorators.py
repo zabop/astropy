@@ -5,8 +5,8 @@ from copy import deepcopy
 from inspect import signature
 from itertools import islice
 import warnings
+from functools import wraps
 
-from astropy.utils import wraps
 from astropy.utils.exceptions import AstropyUserWarning
 
 from .nddata import NDData
@@ -168,16 +168,17 @@ def support_nddata(_func=None, accepts=NDData,
         # First argument should be data
         if not func_args or func_args[0] != attr_arg_map.get('data', 'data'):
             raise ValueError("Can only wrap functions whose first positional "
-                             "argument is `{0}`"
+                             "argument is `{}`"
                              "".format(attr_arg_map.get('data', 'data')))
 
         @wraps(func)
         def wrapper(data, *args, **kwargs):
+            bound_args = signature(func).bind(data, *args, **kwargs)
             unpack = isinstance(data, accepts)
             input_data = data
             ignored = []
             if not unpack and isinstance(data, NDData):
-                raise TypeError("Only NDData sub-classes that inherit from {0}"
+                raise TypeError("Only NDData sub-classes that inherit from {}"
                                 " can be used by this function"
                                 "".format(accepts.__name__))
 
@@ -205,7 +206,7 @@ def support_nddata(_func=None, accepts=NDData,
 
                     # Check if the property was explicitly given and issue a
                     # Warning if it is.
-                    if propmatch in kwargs:
+                    if propmatch in bound_args.arguments:
                         # If it's in the func_args it's trivial but if it was
                         # in the func_kwargs we need to compare it to the
                         # default.
@@ -221,11 +222,11 @@ def support_nddata(_func=None, accepts=NDData,
                         # NDData.
                         if (propmatch in func_args or
                                 (propmatch in func_kwargs and
-                                 (kwargs[propmatch] is not
+                                 (bound_args.arguments[propmatch] is not
                                   sig[propmatch].default))):
                             warnings.warn(
-                                "Property {0} has been passed explicitly and "
-                                "as an NDData property{1}, using explicitly "
+                                "Property {} has been passed explicitly and "
+                                "as an NDData property{}, using explicitly "
                                 "specified value"
                                 "".format(propmatch, '' if prop == propmatch
                                           else ' ' + prop),

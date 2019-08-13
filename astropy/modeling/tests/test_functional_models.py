@@ -3,7 +3,7 @@
 
 import pytest
 import numpy as np
-from numpy.testing import assert_allclose, assert_array_equal
+from numpy.testing import assert_allclose, assert_array_equal, assert_array_less
 
 from astropy.modeling import models, InputParameterError
 from astropy.coordinates import Angle
@@ -117,12 +117,14 @@ def test_Gaussian2D_invalid_inputs():
         models.Gaussian2D(theta=0, cov_matrix=cov_matrix)
 
 
-def test_moffat_fwhm():
+@pytest.mark.parametrize('gamma', (10, -10))
+def test_moffat_fwhm(gamma):
     ans = 34.641016151377542
-    kwargs = {'gamma': 10, 'alpha': 0.5}
+    kwargs = {'gamma': gamma, 'alpha': 0.5}
     m1 = models.Moffat1D(**kwargs)
     m2 = models.Moffat2D(**kwargs)
     assert_allclose([m1.fwhm, m2.fwhm], ans)
+    assert_array_less(0, [m1.fwhm, m2.fwhm])
 
 
 def test_RedshiftScaleFactor():
@@ -255,20 +257,11 @@ def test_Voigt1D():
 
 
 @pytest.mark.skipif("not HAS_SCIPY")
-def test_compound_models_with_class_variables():
-    models_2d = [models.AiryDisk2D, models.Sersic2D]
-    models_1d = [models.Sersic1D]
-
-    for model_2d in models_2d:
-        class CompoundModel2D(models.Const2D + model_2d):
-            pass
-        x, y = np.mgrid[:10, :10]
-        f = CompoundModel2D()(x, y)
-        assert f.shape == (10, 10)
-
-    for model_1d in models_1d:
-        class CompoundModel1D(models.Const1D + model_1d):
-            pass
-        x = np.arange(10)
-        f = CompoundModel1D()(x)
-        assert f.shape == (10,)
+def test_KingProjectedAnalytic1D_fit():
+    km = models.KingProjectedAnalytic1D(amplitude=1, r_core=1, r_tide=2)
+    xarr = np.linspace(0.1, 2, 10)
+    yarr = km(xarr)
+    km_init = models.KingProjectedAnalytic1D(amplitude=1, r_core=1, r_tide=1)
+    fitter = fitting.LevMarLSQFitter()
+    km_fit = fitter(km_init, xarr, yarr)
+    assert_allclose(km_fit.param_sets, km.param_sets)

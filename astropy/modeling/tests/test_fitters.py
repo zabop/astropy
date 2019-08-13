@@ -56,7 +56,7 @@ class TestPolynomial2D:
 
     def test_poly2D_fitting(self):
         v = self.model.fit_deriv(x=self.x, y=self.y)
-        p = linalg.lstsq(v, self.z.flatten())[0]
+        p = linalg.lstsq(v, self.z.flatten(), rcond=-1)[0]
         new_model = self.fitter(self.model, self.x, self.y, self.z)
         assert_allclose(new_model.parameters, p)
 
@@ -181,6 +181,7 @@ class TestJointFitter:
         coeff, _ = optimize.leastsq(errfunc, p,
                                     args=(self.x, self.ny1, self.x, self.ny2))
         assert_allclose(coeff, self.jf.fitparams, rtol=10 ** (-2))
+
 
 class TestLinearLSQFitter:
     def test_compound_model_raises_error(self):
@@ -738,7 +739,6 @@ def test_2d_set_axis_2_fitting_with_outlier_removal():
     z[3,3:5,0] = 100.   # outliers
 
     poly_set, filt_z = fitter(poly_set, x, y, z)
-
     assert_allclose(poly_set.c0_0, [[[0., 1.]]], atol=1e-14)
     assert_allclose(poly_set.c1_0, [[[1., -0.1]]], atol=1e-14)
     assert_allclose(poly_set.c0_1, [[[1., 0.2]]], atol=1e-14)

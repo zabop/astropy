@@ -94,7 +94,6 @@ class Rotate3DType(TransformType):
                                                          node["psi"],
                                                          axes_order=node["direction"])
 
-
     @classmethod
     def to_tree_transform(cls, model, ctx):
         if isinstance(model, modeling.rotations.RotateNative2Celestial):
@@ -211,11 +210,11 @@ _generic_projections = {
 
 def make_projection_types():
     for tag_name, (name, params, version) in _generic_projections.items():
-        class_name = '{0}Type'.format(name)
-        types = ['astropy.modeling.projections.Pix2Sky_{0}'.format(name),
-                 'astropy.modeling.projections.Sky2Pix_{0}'.format(name)]
+        class_name = f'{name}Type'
+        types = [f'astropy.modeling.projections.Pix2Sky_{name}',
+                 f'astropy.modeling.projections.Sky2Pix_{name}']
 
-        members = {'name': 'transform/{0}'.format(tag_name),
+        members = {'name': f'transform/{tag_name}',
                    'types': types,
                    'params': params}
         if version:
@@ -227,5 +226,6 @@ def make_projection_types():
             members)
 
         __all__.append(class_name)
+
 
 make_projection_types()

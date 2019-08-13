@@ -460,7 +460,7 @@ def table_to_hdu(table, character_as_bytes=False):
         unsupported_cols = table.columns.not_isinstance((BaseColumn, Quantity, Time))
         if unsupported_cols:
             unsupported_names = [col.info.name for col in unsupported_cols]
-            raise ValueError('cannot write table with mixin column(s) {0}'
+            raise ValueError('cannot write table with mixin column(s) {}'
                          .format(unsupported_names))
 
         time_cols = table.columns.isinstance(Time)
@@ -519,31 +519,35 @@ def table_to_hdu(table, character_as_bytes=False):
             except UnitScaleError:
                 scale = unit.scale
                 raise UnitScaleError(
-                    "The column '{0}' could not be stored in FITS format "
-                    "because it has a scale '({1})' that "
+                    "The column '{}' could not be stored in FITS format "
+                    "because it has a scale '({})' that "
                     "is not recognized by the FITS standard. Either scale "
                     "the data or change the units.".format(col.name, str(scale)))
             except ValueError:
                 warnings.warn(
-                    "The unit '{0}' could not be saved to FITS format".format(
+                    "The unit '{}' could not be saved to FITS format".format(
                         unit.to_string()), AstropyUserWarning)
-
-            # Try creating a Unit to issue a warning if the unit is not FITS compliant
-            Unit(col.unit, format='fits', parse_strict='warn')
+            else:
+                # Try creating a Unit to issue a warning if the unit is not
+                # FITS compliant
+                Unit(col.unit, format='fits', parse_strict='warn')
 
     # Column-specific override keywords for coordinate columns
     coord_meta = table.meta.pop('__coordinate_columns__', {})
     for col_name, col_info in coord_meta.items():
         col = table_hdu.columns[col_name]
         # Set the column coordinate attributes from data saved earlier.
-        # Note: have to set all three, even if we have no data.
-        for attr in 'coord_type', 'coord_unit', 'time_ref_pos':
+        # Note: have to set these, even if we have no data.
+        for attr in 'coord_type', 'coord_unit':
             setattr(col, attr, col_info.get(attr, None))
+        trpos = col_info.get('time_ref_pos', None)
+        if trpos is not None:
+            setattr(col, 'time_ref_pos', trpos)
 
     for key, value in table.meta.items():
         if is_column_keyword(key.upper()) or key.upper() in REMOVE_KEYWORDS:
             warnings.warn(
-                "Meta-data keyword {0} will be ignored since it conflicts "
+                "Meta-data keyword {} will be ignored since it conflicts "
                 "with a FITS reserved keyword".format(key), AstropyUserWarning)
 
         # Convert to FITS format
@@ -556,7 +560,7 @@ def table_to_hdu(table, character_as_bytes=False):
                     table_hdu.header.append((key, item))
                 except ValueError:
                     warnings.warn(
-                        "Attribute `{0}` of type {1} cannot be added to "
+                        "Attribute `{}` of type {} cannot be added to "
                         "FITS Header - skipping".format(key, type(value)),
                         AstropyUserWarning)
         else:
@@ -564,7 +568,7 @@ def table_to_hdu(table, character_as_bytes=False):
                 table_hdu.header[key] = value
             except ValueError:
                 warnings.warn(
-                    "Attribute `{0}` of type {1} cannot be added to FITS "
+                    "Attribute `{}` of type {} cannot be added to FITS "
                     "Header - skipping".format(key, type(value)),
                     AstropyUserWarning)
     return table_hdu
@@ -601,10 +605,15 @@ def append(filename, data, header=None, checksum=False, verify=True, **kwargs):
         faster.
 
     kwargs
-        Any additional keyword arguments to be passed to
-        `astropy.io.fits.open`.
-    """
+        Additional arguments are passed to:
 
+        - `~astropy.io.fits.writeto` if the file does not exist or is empty.
+          In this case ``output_verify`` is the only possible argument.
+        - `~astropy.io.fits.open` if ``verify`` is True or if ``filename``
+          is a file object.
+        - Otherwise no additional arguments can be used.
+
+    """
     name, closed, noexist_or_empty = _stat_filename_or_fileobj(filename)
 
     if noexist_or_empty:
@@ -621,7 +630,7 @@ def append(filename, data, header=None, checksum=False, verify=True, **kwargs):
             hdu = ImageHDU(data, header)
 
         if verify or not closed:
-            f = fitsopen(filename, mode='append')
+            f = fitsopen(filename, mode='append', **kwargs)
             try:
                 f.append(hdu)
 
@@ -1029,7 +1038,7 @@ def _getext(filename, mode, *args, ext=None, extname=None, extver=None,
 def _makehdu(data, header):
     if header is None:
         header = Header()
-    hdu = _BaseHDU(data, header)
+    hdu = _BaseHDU._from_data(data, header)
     if hdu.__class__ in (_BaseHDU, _ValidHDU):
         # The HDU type was unrecognized, possibly due to a
         # nonexistent/incomplete header

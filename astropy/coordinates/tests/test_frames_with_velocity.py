@@ -12,6 +12,7 @@ from astropy.units import allclose as quantity_allclose
 from astropy.coordinates.errors import ConvertError
 from astropy.coordinates import representation as r
 
+
 def test_api():
     # transform observed Barycentric velocities to full-space Galactocentric
     gc_frame = Galactocentric()
@@ -30,6 +31,7 @@ def test_api():
                 pm_ra_cosdec=0*u.mas/u.yr, pm_dec=0*u.mas/u.yr,
                 radial_velocity=71*u.km/u.s)
     icrs.transform_to(Galactocentric)
+
 
 all_kwargs = [
     dict(ra=37.4*u.deg, dec=-55.8*u.deg),
@@ -63,6 +65,7 @@ all_kwargs = [
          differential_type='cartesian'),
 ]
 
+
 @pytest.mark.parametrize('kwargs', all_kwargs)
 def test_all_arg_options(kwargs):
     # Above is a list of all possible valid combinations of arguments.
@@ -93,20 +96,21 @@ def test_all_arg_options(kwargs):
             assert 'pm_l_cosb' not in repr_gal
             assert 'pm_b' not in repr_gal
 
+
 @pytest.mark.parametrize('cls,lon,lat', [
     [bf.ICRS, 'ra', 'dec'], [bf.FK4, 'ra', 'dec'], [bf.FK4NoETerms, 'ra', 'dec'],
     [bf.FK5, 'ra', 'dec'], [bf.GCRS, 'ra', 'dec'], [bf.HCRS, 'ra', 'dec'],
     [bf.LSR, 'ra', 'dec'], [bf.CIRS, 'ra', 'dec'], [bf.Galactic, 'l', 'b'],
     [bf.AltAz, 'az', 'alt'], [bf.Supergalactic, 'sgl', 'sgb'],
-    [bf.GalacticLSR, 'l', 'b'], [bf.HeliocentricTrueEcliptic, 'lon', 'lat'],
-    [bf.GeocentricTrueEcliptic, 'lon', 'lat'],
-    [bf.BarycentricTrueEcliptic, 'lon', 'lat'],
+    [bf.GalacticLSR, 'l', 'b'], [bf.HeliocentricMeanEcliptic, 'lon', 'lat'],
+    [bf.GeocentricMeanEcliptic, 'lon', 'lat'],
+    [bf.BarycentricMeanEcliptic, 'lon', 'lat'],
     [bf.PrecessedGeocentric, 'ra', 'dec']
 ])
 def test_expected_arg_names(cls, lon, lat):
     kwargs = {lon: 37.4*u.deg, lat: -55.8*u.deg, 'distance': 150*u.pc,
-              'pm_{0}_cos{1}'.format(lon, lat): -21.2*u.mas/u.yr,
-              'pm_{0}'.format(lat): 17.1*u.mas/u.yr,
+              f'pm_{lon}_cos{lat}': -21.2*u.mas/u.yr,
+              f'pm_{lat}': 17.1*u.mas/u.yr,
               'radial_velocity': 105.7*u.km/u.s}
     frame = cls(**kwargs)
 
@@ -152,6 +156,7 @@ def test_xhip_galactic(hip, ra, dec, pmra, pmdec, glon, glat, dist, pmglon, pmgl
     assert quantity_allclose(uvwg.d_y, V*u.km/u.s, atol=.1*u.km/u.s)
     assert quantity_allclose(uvwg.d_z, W*u.km/u.s, atol=.1*u.km/u.s)
 
+
 @pytest.mark.parametrize('kwargs,expect_success', [
     [dict(ra=37.4*u.deg, dec=-55.8*u.deg), False],
     [dict(ra=37.4*u.deg, dec=-55.8*u.deg, distance=150*u.pc), True],
@@ -182,6 +187,7 @@ def test_frame_affinetransform(kwargs, expect_success):
     else:
         with pytest.raises(ConvertError):
             icrs.transform_to(Galactocentric)
+
 
 def test_differential_type_arg():
     """

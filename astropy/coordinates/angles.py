@@ -120,7 +120,7 @@ class Angle(u.SpecificTypeQuantity):
         elif unit == u.degree:
             return util.dms_to_degrees(*angle)
         else:
-            raise u.UnitsError("Can not parse '{0}' as unit '{1}'"
+            raise u.UnitsError("Can not parse '{}' as unit '{}'"
                                .format(angle, unit))
 
     @staticmethod
@@ -253,7 +253,7 @@ class Angle(u.SpecificTypeQuantity):
 
         if sep == 'fromunit':
             if format not in separators:
-                raise ValueError("Unknown format '{0}'".format(format))
+                raise ValueError(f"Unknown format '{format}'")
             seps = separators[format]
             if unit in seps:
                 sep = seps[unit]
@@ -266,7 +266,7 @@ class Angle(u.SpecificTypeQuantity):
                 if precision is not None:
                     func = ("{0:0." + str(precision) + "f}").format
                 else:
-                    func = '{0:g}'.format
+                    func = '{:g}'.format
             else:
                 if sep == 'fromunit':
                     sep = 'dms'
@@ -281,7 +281,7 @@ class Angle(u.SpecificTypeQuantity):
                 if precision is not None:
                     func = ("{0:0." + str(precision) + "f}").format
                 else:
-                    func = '{0:g}'.format
+                    func = '{:g}'.format
             else:
                 if sep == 'fromunit':
                     sep = 'hms'
@@ -296,7 +296,7 @@ class Angle(u.SpecificTypeQuantity):
                 if precision is not None:
                     func = ("{0:1." + str(precision) + "f}").format
                 else:
-                    func = "{0:g}".format
+                    func = "{:g}".format
             elif sep == 'fromunit':
                 values = self.to_value(unit)
                 unit_string = unit.to_string(format=format)
@@ -310,11 +310,11 @@ class Angle(u.SpecificTypeQuantity):
                     func = plain_unit_format
                 else:
                     def plain_unit_format(val):
-                        return "{0:g}{1}".format(val, unit_string)
+                        return f"{val:g}{unit_string}"
                     func = plain_unit_format
             else:
                 raise ValueError(
-                    "'{0}' can not be represented in sexagesimal "
+                    "'{}' can not be represented in sexagesimal "
                     "notation".format(
                         unit.name))
 
@@ -327,7 +327,7 @@ class Angle(u.SpecificTypeQuantity):
             if alwayssign and not s.startswith('-'):
                 s = '+' + s
             if format == 'latex':
-                s = '${0}$'.format(s)
+                s = f'${s}$'
             return s
 
         format_ufunc = np.vectorize(do_format, otypes=['U'])
@@ -339,12 +339,12 @@ class Angle(u.SpecificTypeQuantity):
 
     def wrap_at(self, wrap_angle, inplace=False):
         """
-        Wrap the `Angle` object at the given ``wrap_angle``.
+        Wrap the `~astropy.coordinates.Angle` object at the given ``wrap_angle``.
 
         This method forces all the angle values to be within a contiguous
         360 degree range so that ``wrap_angle - 360d <= angle <
         wrap_angle``. By default a new Angle object is returned, but if the
-        ``inplace`` argument is `True` then the `Angle` object is wrapped in
+        ``inplace`` argument is `True` then the `~astropy.coordinates.Angle` object is wrapped in
         place and nothing is returned.
 
         For instance::
@@ -362,19 +362,19 @@ class Angle(u.SpecificTypeQuantity):
 
         Parameters
         ----------
-        wrap_angle : str, `Angle`, angular `~astropy.units.Quantity`
+        wrap_angle : str, `~astropy.coordinates.Angle`, angular `~astropy.units.Quantity`
             Specifies a single value for the wrap angle.  This can be any
-            object that can initialize an `Angle` object, e.g. ``'180d'``,
+            object that can initialize an `~astropy.coordinates.Angle` object, e.g. ``'180d'``,
             ``180 * u.deg``, or ``Angle(180, unit=u.deg)``.
 
         inplace : bool
             If `True` then wrap the object in place instead of returning
-            a new `Angle`
+            a new `~astropy.coordinates.Angle`
 
         Returns
         -------
         out : Angle or `None`
-            If ``inplace is False`` (default), return new `Angle` object
+            If ``inplace is False`` (default), return new `~astropy.coordinates.Angle` object
             with angles wrapped accordingly.  Otherwise wrap in place and
             return `None`.
         """
@@ -405,13 +405,13 @@ class Angle(u.SpecificTypeQuantity):
 
         Parameters
         ----------
-        lower : str, `Angle`, angular `~astropy.units.Quantity`, `None`
+        lower : str, `~astropy.coordinates.Angle`, angular `~astropy.units.Quantity`, `None`
             Specifies lower bound for checking.  This can be any object
-            that can initialize an `Angle` object, e.g. ``'180d'``,
+            that can initialize an `~astropy.coordinates.Angle` object, e.g. ``'180d'``,
             ``180 * u.deg``, or ``Angle(180, unit=u.deg)``.
-        upper : str, `Angle`, angular `~astropy.units.Quantity`, `None`
+        upper : str, `~astropy.coordinates.Angle`, angular `~astropy.units.Quantity`, `None`
             Specifies upper bound for checking.  This can be any object
-            that can initialize an `Angle` object, e.g. ``'180d'``,
+            that can initialize an `~astropy.coordinates.Angle` object, e.g. ``'180d'``,
             ``180 * u.deg``, or ``Angle(180, unit=u.deg)``.
 
         Returns
@@ -483,7 +483,7 @@ class Latitude(Angle):
 
     Parameters
     ----------
-    angle : array, list, scalar, `~astropy.units.Quantity`, `Angle`. The
+    angle : array, list, scalar, `~astropy.units.Quantity`, `~astropy.coordinates.Angle`. The
         angle value(s). If a tuple, will be interpreted as ``(h, m, s)`` or
         ``(d, m, s)`` depending on ``unit``. If a string, it will be
         interpreted following the rules described for
@@ -528,7 +528,7 @@ class Latitude(Angle):
         upper = u.degree.to(angles.unit, 90.0)
         if np.any(angles.value < lower) or np.any(angles.value > upper):
             raise ValueError('Latitude angle(s) must be within -90 deg <= angle <= 90 deg, '
-                             'got {0}'.format(angles.to(u.degree)))
+                             'got {}'.format(angles.to(u.degree)))
 
     def __setitem__(self, item, value):
         # Forbid assigning a Long to a Lat.

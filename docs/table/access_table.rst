@@ -69,7 +69,7 @@ to update the original table data or properties.  See also the section on
   t.pprint()   # Same as above
   t.pprint(show_unit=True)  # Show column unit
   t.pprint(show_name=False)  # Do not show column names
-  t.pprint(max_lines=-1, max_width=-1)  # Print full table no matter how long / wide it is
+  t.pprint_all() # Print full table no matter how long / wide it is (same as t.pprint(max_lines=-1, max_width=-1))
 
   t.more()  # Interactively scroll through table like Unix "more"
 
@@ -105,6 +105,15 @@ For all the following examples it is assumed that the table has been created as 
        9.000  10  11
       12.000  13  14
 
+.. Note::
+
+   In the example above the ``format``, ``unit``, and ``description`` attributes
+   of the `~astropy.table.Column` were set directly.  For :ref:`mixin_columns` like
+   `~astropy.units.Quantity` you must set via the ``info`` attribute, for example
+   ``t['a'].info.format = "%6.3f"``.  One can use the ``info`` attribute with
+   `~astropy.table.Column` objects as well, so the general solution that works
+   with any table column is to set via the ``info`` attribute.  See
+   :ref:`mixin_attributes` for more information.
 
 .. _table-summary-information:
 
@@ -430,10 +439,12 @@ meaning as shown below::
   Length = 100 rows
 
 In order to force printing all values regardless of the output length or width
-set ``max_lines`` or ``max_width`` to ``-1``, respectively.  For the wide
-table in this example you see 6 lines of wrapped output like the following::
+use :meth:`~astropy.table.Table.pprint_all`, which is equivalent  to setting ``max_lines``
+and ``max_width`` to ``-1`` in :meth:`~astropy.table.Table.pprint`. 
+:meth:`~astropy.table.Table.pprint_all` takes the same arguments as :meth:`~astropy.table.Table.pprint`.
+For the wide table in this example you see 6 lines of wrapped output like the following::
 
-  >>> t.pprint(max_lines=8, max_width=-1)  # doctest: +SKIP
+  >>> t.pprint_all(max_lines=8)  # doctest: +SKIP
       col0         col1     col2   col3   col4   col5   col6   col7   col8   col9  col10  col11  col12  col13  col14  col15  col16  col17  col18  col19  col20  col21  col22  col23  col24  col25  col26  col27  col28     col29
       km2                                                                                                                                                                                                               kg sec m**-2
   ------------ ----------- ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------------
@@ -468,9 +479,9 @@ ways, for an enhanced viewing experience::
   >>> t1['long column name 2'] = [4, 5, 6]
   >>> t1['long column name 3'] = [7, 8, 9]
   >>> t1['long column name 4'] = [700000, 800000, 900000]
-  >>> t1['long column name 2'].format = '<'
-  >>> t1['long column name 3'].format = '0='
-  >>> t1['long column name 4'].format = '^'
+  >>> t1['long column name 2'].info.format = '<'
+  >>> t1['long column name 3'].info.format = '0='
+  >>> t1['long column name 4'].info.format = '^'
   >>> t1.pprint()
    long column name 1 long column name 2 long column name 3 long column name 4
   ------------------ ------------------ ------------------ ------------------
@@ -542,7 +553,8 @@ In order to get the formatted output for manipulation or writing to a file use
 the Table :meth:`~astropy.table.Table.pformat` or Column
 :func:`~astropy.table.Column.pformat` methods.  These behave just as for
 :meth:`~astropy.table.Table.pprint` but return a list corresponding to each formatted line in the
-:meth:`~astropy.table.Table.pprint` output.
+:meth:`~astropy.table.Table.pprint` output. The :meth:`~astropy.table.Table.pformat_all` method can be 
+used to return a list for all lines in the Table.
 
   >>> lines = t['col3'].pformat(max_lines=8)
 

@@ -25,7 +25,7 @@ from astropy.coordinates import SkyCoord
 class TestMaps:
     def setup(self):
         # get the list of the hdr files that we want to test
-        self._file_list = list(get_pkg_data_filenames("maps", pattern="*.hdr"))
+        self._file_list = list(get_pkg_data_filenames("data/maps", pattern="*.hdr"))
 
     def test_consistency(self):
         # Check to see that we actually have the list we expect, so that we
@@ -46,7 +46,7 @@ class TestMaps:
             filename = os.path.basename(filename)
             # Now find the associated file in the installed wcs test directory.
             header = get_pkg_data_contents(
-                os.path.join("maps", filename), encoding='binary')
+                os.path.join("data", "maps", filename), encoding='binary')
             # finally run the test.
             wcsobj = wcs.WCS(header)
             world = wcsobj.wcs_pix2world([[97, 97]], 1)
@@ -57,7 +57,7 @@ class TestMaps:
 
 class TestSpectra:
     def setup(self):
-        self._file_list = list(get_pkg_data_filenames("spectra",
+        self._file_list = list(get_pkg_data_filenames("data/spectra",
                                                       pattern="*.hdr"))
 
     def test_consistency(self):
@@ -79,7 +79,7 @@ class TestSpectra:
             filename = os.path.basename(filename)
             # Now find the associated file in the installed wcs test directory.
             header = get_pkg_data_contents(
-                os.path.join("spectra", filename), encoding='binary')
+                os.path.join("data", "spectra", filename), encoding='binary')
             # finally run the test.
             all_wcs = wcs.find_all_wcs(header)
             assert len(all_wcs) == 9
@@ -511,7 +511,7 @@ def test_all_world2pix(fname=None, ext=0,
         ndiv = 0
         if e.divergent is not None:
             ndiv = e.divergent.shape[0]
-            print("There are {} diverging solutions.".format(ndiv))
+            print(f"There are {ndiv} diverging solutions.")
             print("Indices of diverging solutions:\n{}"
                   .format(e.divergent))
             print("Diverging solutions:\n{}\n"
@@ -541,7 +541,7 @@ def test_all_world2pix(fname=None, ext=0,
               .format(e.best_solution.shape[0] - ndiv - nslow))
         print("Best solutions (all points):\n{}"
               .format(e.best_solution))
-        print("Accuracy:\n{}\n".format(e.accuracy))
+        print(f"Accuracy:\n{e.accuracy}\n")
         print("\nFinished running 'test_all_world2pix' with errors.\n"
               "ERROR: {}\nRun time: {}\n"
               .format(e.args[0], runtime_end - runtime_begin))
@@ -554,8 +554,8 @@ def test_all_world2pix(fname=None, ext=0,
     meanerr = np.mean(errors)
     maxerr = np.amax(errors)
     print("\nFinished running 'test_all_world2pix'.\n"
-          "Mean error = {0:e}  (Max error = {1:e})\n"
-          "Run time: {2}\n"
+          "Mean error = {:e}  (Max error = {:e})\n"
+          "Run time: {}\n"
           .format(meanerr, maxerr, runtime_end - runtime_begin))
 
     assert(maxerr < 2.0 * tolerance)
@@ -737,7 +737,7 @@ def test_printwcs():
     """
     Just make sure that it runs
     """
-    h = get_pkg_data_contents('spectra/orion-freq-1.hdr', encoding='binary')
+    h = get_pkg_data_contents('data/spectra/orion-freq-1.hdr', encoding='binary')
     w = wcs.WCS(h)
     w.printwcs()
     h = get_pkg_data_contents('data/3d_cd.hdr', encoding='binary')
@@ -886,7 +886,7 @@ def test_list_naxis():
     assert w.naxis == 2
     assert w.wcs.naxis == 2
 
-    path = get_pkg_data_filename("maps/1904-66_SIN.hdr")
+    path = get_pkg_data_filename("data/maps/1904-66_SIN.hdr")
     with open(path, 'rb') as fd:
         content = fd.read()
     w = wcs.WCS(content, naxis=['celestial'])
@@ -919,8 +919,8 @@ def test_no_truncate_crval():
 
     header = w.to_header()
     for ii in range(3):
-        assert header['CRVAL{0}'.format(ii + 1)] == w.wcs.crval[ii]
-        assert header['CDELT{0}'.format(ii + 1)] == w.wcs.cdelt[ii]
+        assert header['CRVAL{}'.format(ii + 1)] == w.wcs.crval[ii]
+        assert header['CDELT{}'.format(ii + 1)] == w.wcs.cdelt[ii]
 
 
 def test_no_truncate_crval_try2():
@@ -938,8 +938,8 @@ def test_no_truncate_crval_try2():
 
     header = w.to_header()
     for ii in range(3):
-        assert header['CRVAL{0}'.format(ii + 1)] == w.wcs.crval[ii]
-        assert header['CDELT{0}'.format(ii + 1)] == w.wcs.cdelt[ii]
+        assert header['CRVAL{}'.format(ii + 1)] == w.wcs.crval[ii]
+        assert header['CDELT{}'.format(ii + 1)] == w.wcs.cdelt[ii]
 
 
 def test_no_truncate_crval_p17():
@@ -1096,19 +1096,21 @@ def test_to_fits_1():
     assert isinstance(wfits[0], fits.PrimaryHDU)
     assert isinstance(wfits[1], fits.ImageHDU)
 
+
 def test_keyedsip():
     """
     Test sip reading with extra key.
     """
     hdr_name = get_pkg_data_filename('data/sip-broken.hdr')
     header = fits.Header.fromfile(hdr_name)
-    del header[str("CRPIX1")]
-    del header[str("CRPIX2")]
+    del header["CRPIX1"]
+    del header["CRPIX2"]
 
     w = wcs.WCS(header=header, key="A")
     assert isinstance( w.sip, wcs.Sip )
     assert w.sip.crpix[0] == 2048
     assert w.sip.crpix[1] == 1026
+
 
 def test_zero_size_input():
     with fits.open(get_pkg_data_filename('data/sip.fits')) as f:
@@ -1140,6 +1142,7 @@ def test_scalar_inputs():
     result = wcsobj.all_pix2world([2], 1)
     assert_array_equal(result, [np.array([2.])])
     assert result[0].shape == (1,)
+
 
 def test_footprint_contains():
     """
@@ -1183,3 +1186,78 @@ NAXIS2  =                 2078 / length of second array dimension
 
     hasCoord = test_wcs.footprint_contains(SkyCoord(24,2,unit='deg'))
     assert hasCoord == False
+
+
+def test_cunit():
+    # Initializing WCS
+    w1 = wcs.WCS(naxis=2)
+    w2 = wcs.WCS(naxis=2)
+    w3 = wcs.WCS(naxis=2)
+    # Initializing the values of cunit
+    w1.wcs.cunit = ['deg', 'm/s']
+    w2.wcs.cunit = ['km/h', 'km/h']
+    w3.wcs.cunit = ['deg', 'm/s']
+
+    # Equality checking a cunit with itself
+    assert w1.wcs.cunit == w1.wcs.cunit
+    # Equality checking of two different cunit object having same values
+    assert w1.wcs.cunit == w3.wcs.cunit
+    # Inequality checking of two different cunit object having different values
+    assert not w1.wcs.cunit == w2.wcs.cunit
+    # Inequality checking of cunit with a list of literals
+    assert not w1.wcs.cunit == [1, 2, 3]
+    # Inequality checking with some characters
+    assert w1.wcs.cunit != ['a', 'b', 'c']
+    # Comparison is not implemented TypeError will raise
+    with pytest.raises(TypeError):
+        w1.wcs.cunit < w2.wcs.cunit
+
+
+class TestWcsWithTime:
+    def setup(self):
+        fname = get_pkg_data_filename(
+            'data/header_with_time.fits')
+        self.header = fits.Header.fromfile(fname)
+        self.w = wcs.WCS(self.header, key='A')
+
+    def test_keywods2wcsprm(self):
+        """ Make sure Wcsprm is populated correctly from the header."""
+
+        ctype = [self.header[val] for val in self.header["CTYPE*"]]
+        crval = [self.header[val] for val in self.header["CRVAL*"]]
+        crpix = [self.header[val] for val in self.header["CRPIX*"]]
+        cdelt = [self.header[val] for val in self.header["CDELT*"]]
+        cunit = [self.header[val] for val in self.header["CUNIT*"]]
+        assert list(self.w.wcs.ctype) == ctype
+        assert list(self.w.wcs.axis_types) == [2200, 2201, 3300, 0]
+        assert_allclose(self.w.wcs.crval, crval)
+        assert_allclose(self.w.wcs.crpix, crpix)
+        assert_allclose(self.w.wcs.cdelt, cdelt)
+        assert list(self.w.wcs.cunit) == cunit
+
+        naxis = self.w.naxis
+        assert naxis == 4
+        pc = np.zeros((naxis, naxis), dtype=np.float64)
+        for i in range(1, 5):
+            for j in range(1, 5):
+                if i == j:
+                    pc[i-1, j-1] = self.header.get(f'PC{i}_{j}A', 1)
+                else:
+                    pc[i-1, j-1] = self.header.get(f'PC{i}_{j}A', 0)
+        assert_allclose(self.w.wcs.pc, pc)
+
+        char_keys = ['timesys', 'trefpos', 'trefdir', 'plephem', 'timeunit',
+                     'dateref', 'dateobs', 'datebeg', 'dateavg', 'dateend']
+        for key in char_keys:
+            assert getattr(self.w.wcs, key) == self.header.get(key, "")
+
+        num_keys = ['mjdref', 'mjdobs', 'mjdbeg', 'mjdend',
+                    'jepoch', 'bepoch', 'tstart', 'tstop', 'xposure',
+                    'timsyer', 'timrder', 'timedel', 'timepixr',
+                    'timeoffs', 'telapse', 'czphs', 'cperi']
+
+        for key in num_keys:
+            assert_allclose(getattr(self.w.wcs, key), self.header.get(key, np.nan))
+
+    def test_transforms(self):
+        assert_allclose(self.w.all_pix2world(*self.w.wcs.crpix, 1), self.w.wcs.crval)

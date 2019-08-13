@@ -35,6 +35,44 @@ stretching is described in the `Stretching`_ section.
 Intervals and Normalization
 ===========================
 
+The Quick Way
+-------------
+
+``astropy`` provides a convenience
+:func:`~astropy.visualization.mpl_normalize.simple_norm` function that can be
+useful for quick interactive analysis:
+
+.. plot::
+    :include-source:
+    :align: center
+
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from astropy.visualization import simple_norm
+
+    # Generate a test image
+    image = np.arange(65536).reshape((256, 256))
+
+    # Create an ImageNormalize object
+    norm = simple_norm(image, 'sqrt')
+
+    # Display the image
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1)
+    im = ax.imshow(image, origin='lower', norm=norm)
+    fig.colorbar(im)
+
+This convenience function combines a :class:`Stretch
+<astropy.visualization.stretch.BaseStretch>` object with an :class:`Interval
+<astropy.visualization.interval.BaseInterval>` object.
+We recommend using
+:class:`~astropy.visualization.mpl_normalize.ImageNormalize` directly
+in scripted programs instead of this convenience function.
+
+
+The detailed way
+----------------
+
 Several classes are provided for determining intervals and for
 normalizing values in this interval to the [0:1] range. One of the
 simplest examples is the
@@ -81,7 +119,7 @@ Stretching
 ==========
 
 In addition to classes that can scale values to the [0:1] range, a
-number of classes are provide to 'stretch' the values using different
+number of classes are provided to 'stretch' the values using different
 functions. These map a [0:1] range onto a transformed [0:1] range. A
 simple example is the :class:`~astropy.visualization.SqrtStretch`
 class::
@@ -234,12 +272,14 @@ also be the vmin and vmax limits, which you can determine from the
     im = ax.imshow(image, origin='lower', norm=norm)
     fig.colorbar(im)
 
-Finally, we also provide a convenience
-:func:`~astropy.visualization.mpl_normalize.simple_norm` function that
-can be useful for quick interactive analysis (it is also used by the
-``fits2bitmap`` command-line script).  However, it is not recommended
-to be used in scripted programs; it's better to use
-:class:`~astropy.visualization.mpl_normalize.ImageNormalize` directly:
+
+Combining stretches and Matplotlib normalization
+================================================
+
+Stretches can also be combined with other stretches, just like transformations.
+The resulting :class:`~astropy.visualization.stretch.CompositeStretch` can be 
+used to normalize Matplotlib images like any other stretch. For example, a
+composite stretch can stretch residual images with negative values:
 
 .. plot::
     :include-source:
@@ -247,16 +287,19 @@ to be used in scripted programs; it's better to use
 
     import numpy as np
     import matplotlib.pyplot as plt
-    from astropy.visualization import simple_norm
+    from astropy.visualization.stretch import SinhStretch, LinearStretch
+    from astropy.visualization import ImageNormalize
 
-    # Generate a test image
-    image = np.arange(65536).reshape((256, 256))
+    # Transforms normalized values [0,1] to [-1,1] before stretch and then back
+    stretch = LinearStretch(slope=0.5, intercept=0.5) + SinhStretch() + \
+        LinearStretch(slope=2, intercept=-1)
 
-    # Create an ImageNormalize object
-    norm = simple_norm(image, 'sqrt')
-
-    # Display the image
+    # Image of random Gaussian noise
+    image = np.random.normal(size=(64, 64))
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
-    im = ax.imshow(image, origin='lower', norm=norm)
+    # ImageNormalize normalizes values to [0,1] before applying the stretch
+    norm = ImageNormalize(stretch=stretch)
+    im = ax.imshow(image, origin='lower', norm=norm, cmap='gray',
+        vmin=-5, vmax=5)
     fig.colorbar(im)

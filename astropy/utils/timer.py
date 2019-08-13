@@ -4,7 +4,8 @@
 # STDLIB
 import time
 import warnings
-from collections import Iterable, OrderedDict
+from collections import OrderedDict
+from collections.abc import Iterable
 from functools import partial, wraps
 
 # THIRD-PARTY
@@ -14,12 +15,14 @@ import numpy as np
 from astropy import units as u
 from astropy import log
 from astropy import modeling
-from .exceptions import AstropyUserWarning
+from astropy.utils.decorators import deprecated
+from astropy.utils.exceptions import AstropyUserWarning
 
 __all__ = ['timefunc', 'RunTimePredictor']
 __doctest_skip__ = ['timefunc']
 
 
+@deprecated('4.0', alternative='astroquery.utils.timer.timefunc')
 def timefunc(num_tries=1, verbose=True):
     """Decorator to time a function or method.
 
@@ -71,13 +74,14 @@ def timefunc(num_tries=1, verbose=True):
             te = time.time()
             tt = (te - ts) / num_tries
             if verbose:  # pragma: no cover
-                log.info('{0} took {1} s on AVERAGE for {2} call(s).'.format(
+                log.info('{} took {} s on AVERAGE for {} call(s).'.format(
                     function.__name__, tt, num_tries))
             return tt, result
         return wrapper
     return real_decorator
 
 
+@deprecated('4.0', alternative='astroquery.utils.timer.RunTimePredictor')
 class RunTimePredictor:
     """Class to predict run time.
 
@@ -96,11 +100,14 @@ class RunTimePredictor:
 
     Examples
     --------
-    >>> from astropy.utils.timer import RunTimePredictor
+    >>> import warnings
 
     Set up a predictor for :math:`10^{x}`:
 
-    >>> p = RunTimePredictor(pow, 10)
+    >>> with warnings.catch_warnings():
+    ...     warnings.simplefilter('ignore')  # Ignore deprecation warning
+    ...     from astropy.utils.timer import RunTimePredictor
+    ...     p = RunTimePredictor(pow, 10)
 
     Give it baseline data to use for prediction and
     get the function output values:
@@ -253,20 +260,20 @@ class RunTimePredictor:
 
         x_arr = np.array(list(self._cache_good.keys()))
         if x_arr.size < min_datapoints:
-            raise ValueError('requires {0} points but has {1}'.format(
+            raise ValueError('requires {} points but has {}'.format(
                 min_datapoints, x_arr.size))
 
         if model is None:
             model = modeling.models.Polynomial1D(1)
         elif not isinstance(model, modeling.core.Model):
             raise modeling.fitting.ModelsError(
-                '{0} is not a model.'.format(model))
+                f'{model} is not a model.')
 
         if fitter is None:
             fitter = modeling.fitting.LinearLSQFitter()
         elif not isinstance(fitter, modeling.fitting.Fitter):
             raise modeling.fitting.ModelsError(
-                '{0} is not a fitter.'.format(fitter))
+                f'{fitter} is not a fitter.')
 
         self._fit_func = fitter(
             model, x_arr**power, list(self._cache_good.values()))

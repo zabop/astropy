@@ -8,7 +8,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from astropy.io.fits.column import (_parse_tdisp_format, _fortran_to_python_format,
-                      python_to_tdisp)
+                                    python_to_tdisp)
 
 from astropy.io.fits import HDUList, PrimaryHDU, BinTableHDU
 
@@ -26,7 +26,7 @@ from astropy.time import Time, TimeDelta
 from astropy.units.quantity import QuantityInfo
 
 try:
-    import yaml  # pylint: disable=W0611
+    import yaml  # pylint: disable=W0611  # noqa
     HAS_YAML = True
 except ImportError:
     HAS_YAML = False
@@ -47,7 +47,7 @@ class TestSingleTable:
         self.data = np.array(list(zip([1, 2, 3, 4],
                                       ['a', 'b', 'c', 'd'],
                                       [2.3, 4.5, 6.7, 8.9])),
-                             dtype=[(str('a'), int), (str('b'), str('U1')), (str('c'), float)])
+                             dtype=[('a', int), ('b', 'U1'), ('c', float)])
 
     def test_simple(self, tmpdir):
         filename = str(tmpdir.join('test_simple.fts'))
@@ -148,7 +148,7 @@ class TestSingleTable:
         filename = str(tmpdir.join('test_masked_nan.fits'))
         data = np.array(list(zip([5.2, 8.4, 3.9, 6.3],
                                  [2.3, 4.5, 6.7, 8.9])),
-                                dtype=[(str('a'), np.float64), (str('b'), np.float32)])
+                                dtype=[('a', np.float64), ('b', np.float32)])
         t1 = Table(data, masked=True)
         t1.mask['a'] = [1, 0, 1, 0]
         t1.mask['b'] = [1, 0, 0, 1]
@@ -211,10 +211,10 @@ class TestMultipleHDU:
         self.data1 = np.array(list(zip([1, 2, 3, 4],
                                        ['a', 'b', 'c', 'd'],
                                        [2.3, 4.5, 6.7, 8.9])),
-                              dtype=[(str('a'), int), (str('b'), str('U1')), (str('c'), float)])
+                              dtype=[('a', int), ('b', 'U1'), ('c', float)])
         self.data2 = np.array(list(zip([1.4, 2.3, 3.2, 4.7],
                                        [2.3, 4.5, 6.7, 8.9])),
-                              dtype=[(str('p'), float), (str('q'), float)])
+                              dtype=[('p', float), ('q', float)])
         hdu1 = PrimaryHDU()
         hdu2 = BinTableHDU(self.data1, name='first')
         hdu3 = BinTableHDU(self.data2, name='second')
@@ -388,14 +388,14 @@ def test_unicode_column(tmpdir):
     https://github.com/astropy/astropy/pull/4228
     """
 
-    t = Table([np.array([u'a', u'b', u'cd'])])
+    t = Table([np.array(['a', 'b', 'cd'])])
     t.write(str(tmpdir.join('test.fits')), overwrite=True)
 
     with fits.open(str(tmpdir.join('test.fits'))) as hdul:
         assert np.all(hdul[1].data['col0'] == ['a', 'b', 'cd'])
         assert hdul[1].header['TFORM1'] == '2A'
 
-    t2 = Table([np.array([u'\N{SNOWMAN}'])])
+    t2 = Table([np.array(['\N{SNOWMAN}'])])
 
     with pytest.raises(UnicodeEncodeError):
         t2.write(str(tmpdir.join('test.fits')), overwrite=True)
@@ -422,8 +422,8 @@ def test_convert_comment_convention(tmpdir):
     Regression test for https://github.com/astropy/astropy/issues/6079
     """
     filename = os.path.join(DATA, 'stddata.fits')
-    with pytest.warns(AstropyUserWarning, catch='hdu= was not specified but '
-                      'multiple tables are present'):
+    with pytest.warns(AstropyUserWarning, match=r'hdu= was not specified but '
+                      r'multiple tables are present'):
         t = Table.read(filename)
 
     assert t.meta['comments'] == [
@@ -467,6 +467,7 @@ def assert_objects_equal(obj1, obj2, attrs, compare_class=True):
 
 # Testing FITS table read/write with mixins.  This is mostly
 # copied from ECSV mixin testing.
+
 
 el = EarthLocation(x=1 * u.km, y=3 * u.km, z=5 * u.km)
 el2 = EarthLocation(x=[1, 2] * u.km, y=[3, 4] * u.km, z=[5, 6] * u.km)
@@ -637,7 +638,7 @@ def test_error_for_mixins_but_no_yaml(tmpdir):
     t = Table([mixin_cols['sc']])
     with pytest.raises(TypeError) as err:
         t.write(filename)
-    assert "cannot write type SkyCoord column 'col0' to FITS without PyYAML" in str(err)
+    assert "cannot write type SkyCoord column 'col0' to FITS without PyYAML" in str(err.value)
 
 
 @pytest.mark.skipif('not HAS_YAML')
@@ -669,18 +670,22 @@ def test_round_trip_masked_table_serialize_mask(tmpdir, method):
 
     t = simple_table(masked=True)  # int, float, and str cols with one masked element
 
+    # MaskedColumn but no masked elements.  See table the MaskedColumnInfo class
+    # _represent_as_dict() method for info about we test a column with no masked elements.
+    t['d'] = [1, 2, 3]
+
     if method == 'set_cols':
         for col in t.itercols():
             col.info.serialize_method['fits'] = 'data_mask'
         t.write(filename)
     elif method == 'names':
         t.write(filename, serialize_method={'a': 'data_mask', 'b': 'data_mask',
-                                            'c': 'data_mask'})
+                                            'c': 'data_mask', 'd': 'data_mask'})
     elif method == 'class':
         t.write(filename, serialize_method='data_mask')
 
     t2 = Table.read(filename)
-    assert t2.masked is True
+    assert t2.masked is False
     assert t2.colnames == t.colnames
     for name in t2.colnames:
         assert np.all(t2[name].mask == t[name].mask)

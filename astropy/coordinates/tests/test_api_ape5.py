@@ -97,7 +97,7 @@ def test_representations_api():
 
     # regardless of how input, the `lat` and `lon` come out as angle/distance
     assert isinstance(c1.lat, Angle)
-    assert isinstance(c1.lat, Latitude)  # `Latitude` is an `Angle` subclass
+    assert isinstance(c1.lat, Latitude)  # `Latitude` is an `~astropy.coordinates.Angle` subclass
     assert isinstance(c1.distance, Distance)
 
     # but they are read-only, as representations are immutable once created
@@ -164,12 +164,12 @@ def test_frame_api():
     # as keyword parameters to the frame constructor.  Where sensible, defaults are
     # used. E.g., FK5 is almost always J2000 equinox
     fk5 = FK5(UnitSphericalRepresentation(lon=8*u.hour, lat=5*u.deg))
-    J2000 = time.Time('J2000', scale='utc')
+    J2000 = time.Time('J2000')
     fk5_2000 = FK5(UnitSphericalRepresentation(lon=8*u.hour, lat=5*u.deg), equinox=J2000)
     assert fk5.equinox == fk5_2000.equinox
 
     # the information required to specify the frame is immutable
-    J2001 = time.Time('J2001', scale='utc')
+    J2001 = time.Time('J2001')
     with raises(AttributeError):
         fk5.equinox = J2001
 
@@ -245,7 +245,7 @@ def test_transform_api():
 
     # If no data (or `None`) is given, the class acts as a specifier of a frame, but
     # without any stored data.
-    J2001 = time.Time('J2001', scale='utc')
+    J2001 = time.Time('J2001')
     fk5_J2001_frame = FK5(equinox=J2001)
 
     # if they do not have data, the string instead is the frame specification
@@ -319,7 +319,7 @@ def test_transform_api():
 
 
 def test_highlevel_api():
-    J2001 = time.Time('J2001', scale='utc')
+    J2001 = time.Time('J2001')
 
     # <--------------------------"High-level" class-------------------------------->
     # The "high-level" class is intended to wrap the lower-level classes in such a

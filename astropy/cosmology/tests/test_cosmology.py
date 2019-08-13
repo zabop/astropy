@@ -8,10 +8,11 @@ import numpy as np
 from astropy.cosmology import core, funcs
 from astropy.units import allclose
 from astropy.utils.compat import NUMPY_LT_1_14
+from astropy import constants as const
 from astropy import units as u
 
 try:
-    import scipy  # pylint: disable=W0611
+    import scipy  # pylint: disable=W0611  # noqa
 except ImportError:
     HAS_SCIPY = False
 else:
@@ -1083,18 +1084,24 @@ def test_neg_distmod():
 
 @pytest.mark.skipif('not HAS_SCIPY')
 def test_critical_density():
+    from astropy.constants import codata2014
+
     # WMAP7 but with Omega_relativistic = 0
     # These tests will fail if astropy.const starts returning non-mks
-    #  units by default; see the comment at the top of core.py
+    #  units by default; see the comment at the top of core.py.
+    # critical_density0 is inversely proportional to G.
     tcos = core.FlatLambdaCDM(70.4, 0.272, Tcmb0=0.0)
-    assert allclose(tcos.critical_density0,
-                    9.309668456020899e-30 * u.g / u.cm**3)
+    fac = (const.G / codata2014.G).to(u.dimensionless_unscaled).value
+    assert allclose(tcos.critical_density0 * fac,
+                    9.309668456020899e-30 * (u.g / u.cm**3))
     assert allclose(tcos.critical_density0,
                     tcos.critical_density(0))
-    assert allclose(tcos.critical_density([1, 5]),
-                    [2.70352772e-29, 5.53739080e-28] * u.g / u.cm**3)
-    assert allclose(tcos.critical_density([1., 5.]),
-                    [2.70352772e-29, 5.53739080e-28] * u.g / u.cm**3)
+    assert allclose(
+        tcos.critical_density([1, 5]) * fac,
+        [2.70352772e-29, 5.53739080e-28] * (u.g / u.cm**3))
+    assert allclose(
+        tcos.critical_density([1., 5.]) * fac,
+        [2.70352772e-29, 5.53739080e-28] * (u.g / u.cm**3))
 
 
 @pytest.mark.skipif('not HAS_SCIPY')
@@ -1117,6 +1124,7 @@ def test_comoving_distance_z1z2():
     assert allclose(tcos._comoving_distance_z1z2(z1, z2),
                     results)
 
+
 @pytest.mark.skipif('not HAS_SCIPY')
 def test_age_in_special_cosmologies():
     """Check that age in de Sitter and Einstein-de Sitter Universes work.
@@ -1134,6 +1142,7 @@ def test_age_in_special_cosmologies():
     assert allclose(c_EdS.age(z=1), 2.3046783684542738 * u.Gyr)
     assert allclose(c_EdS.lookback_time(z=0), 0 * u.Gyr)
     assert allclose(c_EdS.lookback_time(z=1), 4.213936442699092 * u.Gyr)
+
 
 @pytest.mark.skipif('not HAS_SCIPY')
 def test_distance_in_special_cosmologies():
@@ -1156,6 +1165,7 @@ def test_distance_in_special_cosmologies():
     c_EdS = core.LambdaCDM(100, 1, 0, Tcmb0=0)
     assert allclose(c_EdS.comoving_distance(z=0), 0 * u.Mpc)
     assert allclose(c_EdS.comoving_distance(z=1), 1756.1435599923348 * u.Mpc)
+
 
 @pytest.mark.skipif('not HAS_SCIPY')
 def test_comoving_transverse_distance_z1z2():
@@ -1571,11 +1581,11 @@ def test_z_at_value():
     # test behavior when the solution is outside z limits (should
     # raise a CosmologyError)
     with pytest.raises(core.CosmologyError):
-        with pytest.warns(UserWarning, match='fval is not bracketed'):
+        with pytest.warns(UserWarning, match=r'fval is not bracketed'):
             z_at_value(cosmo.angular_diameter_distance, 1500*u.Mpc, zmax=0.5)
 
     with pytest.raises(core.CosmologyError):
-        with pytest.warns(UserWarning, match='fval is not bracketed'):
+        with pytest.warns(UserWarning, match=r'fval is not bracketed'):
             z_at_value(cosmo.angular_diameter_distance, 1500*u.Mpc, zmin=4.)
 
 
@@ -1603,7 +1613,7 @@ def test_z_at_value_roundtrip():
     for name, func in methods:
         if name.startswith('_') or name in skip:
             continue
-        print('Round-trip testing {0}'.format(name))
+        print(f'Round-trip testing {name}')
         fval = func(z)
         # we need zmax here to pick the right solution for
         # angular_diameter_distance and related methods.
@@ -1623,3 +1633,14 @@ def test_z_at_value_roundtrip():
         fval = func(z)
         assert allclose(z, funcs.z_at_value(func, fval, zmax=1.5),
                         rtol=2e-8)
+
+
+@pytest.mark.skipif('not HAS_SCIPY')
+def test_elliptic_comoving_distance_z1z2():
+    """Regression test for #8388."""
+    cosmo = core.LambdaCDM(70., 2.3, 0.05, Tcmb0=0)
+    z = 0.2
+    assert allclose(cosmo.comoving_distance(z),
+                    cosmo._integral_comoving_distance_z1z2(0., z))
+    assert allclose(cosmo._elliptic_comoving_distance_z1z2(0., z),
+                    cosmo._integral_comoving_distance_z1z2(0., z))

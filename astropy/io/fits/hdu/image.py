@@ -42,24 +42,12 @@ class _ImageBaseHDU(_ValidHDU):
 
         super().__init__(data=data, header=header)
 
-        if header is not None:
-            if not isinstance(header, Header):
-                # TODO: Instead maybe try initializing a new Header object from
-                # whatever is passed in as the header--there are various types
-                # of objects that could work for this...
-                raise ValueError('header must be a Header object')
-
         if data is DELAYED:
             # Presumably if data is DELAYED then this HDU is coming from an
             # open file, and was not created in memory
             if header is None:
                 # this should never happen
                 raise ValueError('No header to setup HDU.')
-
-            # if the file is read the first time, no need to copy, and keep it
-            # unchanged
-            else:
-                self._header = header
         else:
             # TODO: Some of this card manipulation should go into the
             # PrimaryHDU and GroupsHDU subclasses
@@ -148,11 +136,10 @@ class _ImageBaseHDU(_ValidHDU):
                 self._data_needs_rescale = True
             return
         else:
-            # Setting data will set set _bitpix, _bzero, and _bscale to the
-            # appropriate BITPIX for the data, and always sets _bzero=0 and
-            # _bscale=1.
+            # Setting data will update the header and set _bitpix, _bzero,
+            # and _bscale to the appropriate BITPIX for the data, and always
+            # sets _bzero=0 and _bscale=1.
             self.data = data
-            self.update_header()
 
             # Check again for BITPIX/BSCALE/BZERO in case they changed when the
             # data was assigned. This can happen, for example, if the input
@@ -583,7 +570,7 @@ class _ImageBaseHDU(_ValidHDU):
         # should be handled by the schema
         if not _is_int(self._blank):
             messages.append(
-                "Invalid value for 'BLANK' keyword in header: {0!r} "
+                "Invalid value for 'BLANK' keyword in header: {!r} "
                 "The 'BLANK' keyword must be an integer.  It will be "
                 "ignored in the meantime.".format(self._blank))
             self._blank = None
@@ -625,7 +612,7 @@ class _ImageBaseHDU(_ValidHDU):
                 # Convert the unsigned array to signed
                 output = np.array(
                     self.data - _unsigned_zero(self.data.dtype),
-                    dtype='>i{}'.format(self.data.dtype.itemsize))
+                    dtype=f'>i{self.data.dtype.itemsize}')
                 should_swap = False
             else:
                 output = self.data
@@ -796,7 +783,7 @@ class _ImageBaseHDU(_ValidHDU):
                     (self._orig_bscale != 1 or self._orig_bzero != 0)):
                 new_dtype = self._dtype_for_bitpix()
                 if new_dtype is not None:
-                    format += ' (rescales to {0})'.format(new_dtype.name)
+                    format += f' (rescales to {new_dtype.name})'
 
         # Display shape in FITS-order
         shape = tuple(reversed(self.shape))
@@ -817,7 +804,7 @@ class _ImageBaseHDU(_ValidHDU):
             # 16, 32 or 64
             if _is_pseudo_unsigned(self.data.dtype):
                 d = np.array(self.data - _unsigned_zero(self.data.dtype),
-                             dtype='i{}'.format(self.data.dtype.itemsize))
+                             dtype=f'i{self.data.dtype.itemsize}')
 
             # Check the byte order of the data.  If it is little endian we
             # must swap it before calculating the datasum.
@@ -1133,7 +1120,7 @@ class _IndexInfo:
                 self.offset = indx
                 self.contiguous = True
             else:
-                raise IndexError('Index {} out of range.'.format(indx))
+                raise IndexError(f'Index {indx} out of range.')
         elif isinstance(indx, slice):
             start, stop, step = indx.indices(naxis)
             self.npts = (stop - start) // step
@@ -1144,4 +1131,4 @@ class _IndexInfo:
             self.offset = 0
             self.contiguous = False
         else:
-            raise IndexError('Illegal index {}'.format(indx))
+            raise IndexError(f'Illegal index {indx}')

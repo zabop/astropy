@@ -89,7 +89,7 @@ def _probably_html(table, maxchars=100000):
             return True
 
         # Look for <TABLE .. >, <TR .. >, <TD .. > tag openers.
-        if all(re.search(r'< \s* {0} [^>]* >'.format(element), table, re.IGNORECASE | re.VERBOSE)
+        if all(re.search(fr'< \s* {element} [^>]* >', table, re.IGNORECASE | re.VERBOSE)
                for element in ('table', 'tr', 'td')):
             return True
 
@@ -178,13 +178,13 @@ def get_reader(Reader=None, Inputter=None, Outputter=None, **kwargs):
 
 def _get_format_class(format, ReaderWriter, label):
     if format is not None and ReaderWriter is not None:
-        raise ValueError('Cannot supply both format and {0} keywords'.format(label))
+        raise ValueError(f'Cannot supply both format and {label} keywords')
 
     if format is not None:
         if format in core.FORMAT_CLASSES:
             ReaderWriter = core.FORMAT_CLASSES[format]
         else:
-            raise ValueError('ASCII format {0!r} not in allowed list {1}'
+            raise ValueError('ASCII format {!r} not in allowed list {}'
                              .format(format, sorted(core.FORMAT_CLASSES)))
     return ReaderWriter
 
@@ -202,93 +202,7 @@ def _get_fast_reader_dict(kwargs):
 
 
 def read(table, guess=None, **kwargs):
-    """
-    Read the input ``table`` and return the table.  Most of
-    the default behavior for various parameters is determined by the Reader
-    class.
-
-    See also:
-
-    - http://docs.astropy.org/en/stable/io/ascii/
-    - http://docs.astropy.org/en/stable/io/ascii/read.html
-
-    Parameters
-    ----------
-    table : str, file-like, list, pathlib.Path object
-        Input table as a file name, file-like object, list of strings,
-        single newline-separated string or pathlib.Path object .
-    guess : bool
-        Try to guess the table format. Defaults to None.
-    format : str, `~astropy.io.ascii.BaseReader`
-        Input table format
-    Inputter : `~astropy.io.ascii.BaseInputter`
-        Inputter class
-    Outputter : `~astropy.io.ascii.BaseOutputter`
-        Outputter class
-    delimiter : str
-        Column delimiter string
-    comment : str
-        Regular expression defining a comment line in table
-    quotechar : str
-        One-character string to quote fields containing special characters
-    header_start : int
-        Line index for the header line not counting comment or blank lines.
-        A line with only whitespace is considered blank.
-    data_start : int
-        Line index for the start of data not counting comment or blank lines.
-        A line with only whitespace is considered blank.
-    data_end : int
-        Line index for the end of data not counting comment or blank lines.
-        This value can be negative to count from the end.
-    converters : dict
-        Dictionary of converters
-    data_Splitter : `~astropy.io.ascii.BaseSplitter`
-        Splitter class to split data columns
-    header_Splitter : `~astropy.io.ascii.BaseSplitter`
-        Splitter class to split header columns
-    names : list
-        List of names corresponding to each data column
-    include_names : list
-        List of names to include in output.
-    exclude_names : list
-        List of names to exclude from output (applied after ``include_names``)
-    fill_values : dict
-        specification of fill values for bad or missing table values
-    fill_include_names : list
-        List of names to include in fill_values.
-    fill_exclude_names : list
-        List of names to exclude from fill_values (applied after ``fill_include_names``)
-    fast_reader : bool or dict
-        Whether to use the C engine, can also be a dict with options which
-        defaults to `False`; parameters for options dict:
-
-        use_fast_converter: bool
-            enable faster but slightly imprecise floating point conversion method
-        parallel: bool or int
-            multiprocessing conversion using ``cpu_count()`` or ``'number'`` processes
-        exponent_style: str
-            One-character string defining the exponent or ``'Fortran'`` to auto-detect
-            Fortran-style scientific notation like ``'3.14159D+00'`` (``'E'``, ``'D'``, ``'Q'``),
-            all case-insensitive; default ``'E'``, all other imply ``use_fast_converter``
-        chunk_size : int
-            If supplied with a value > 0 then read the table in chunks of
-            approximately ``chunk_size`` bytes. Default is reading table in one pass.
-        chunk_generator : bool
-            If True and ``chunk_size > 0`` then return an iterator that returns a
-            table for each chunk.  The default is to return a single stacked table
-            for all the chunks.
-
-    Reader : `~astropy.io.ascii.BaseReader`
-        Reader class (DEPRECATED)
-    encoding: str
-        Allow to specify encoding to read the file (default= ``None``).
-
-    Returns
-    -------
-    dat : `~astropy.table.Table` OR <generator>
-        Output table
-
-    """
+    # Docstring defined below
     del _read_trace[:]
 
     # Downstream readers might munge kwargs
@@ -382,9 +296,9 @@ def read(table, guess=None, **kwargs):
         # Try the fast reader version of `format` first if applicable.  Note that
         # if user specified a fast format (e.g. format='fast_basic') this test
         # will fail and the else-clause below will be used.
-        if fast_reader['enable'] and 'fast_{0}'.format(format) in core.FAST_CLASSES:
+        if fast_reader['enable'] and f'fast_{format}' in core.FAST_CLASSES:
             fast_kwargs = copy.deepcopy(new_kwargs)
-            fast_kwargs['Reader'] = core.FAST_CLASSES['fast_{0}'.format(format)]
+            fast_kwargs['Reader'] = core.FAST_CLASSES[f'fast_{format}']
             fast_reader_rdr = get_reader(**fast_kwargs)
             try:
                 dat = fast_reader_rdr.read(table)
@@ -413,6 +327,9 @@ def read(table, guess=None, **kwargs):
                                           '(no guessing)'})
 
     return dat
+
+
+read.__doc__ = core.READ_DOCSTRING
 
 
 def _guess(table, read_kwargs, format, fast_reader):
@@ -448,10 +365,10 @@ def _guess(table, read_kwargs, format, fast_reader):
     full_list_guess = _get_guess_kwargs_list(read_kwargs)
 
     # If a fast version of the reader is available, try that before the slow version
-    if (fast_reader['enable'] and format is not None and 'fast_{0}'.format(format) in
+    if (fast_reader['enable'] and format is not None and f'fast_{format}' in
         core.FAST_CLASSES):
         fast_kwargs = copy.deepcopy(read_kwargs)
-        fast_kwargs['Reader'] = core.FAST_CLASSES['fast_{0}'.format(format)]
+        fast_kwargs['Reader'] = core.FAST_CLASSES[f'fast_{format}']
         full_list_guess = [fast_kwargs] + full_list_guess
     else:
         fast_kwargs = None
@@ -468,7 +385,7 @@ def _guess(table, read_kwargs, format, fast_reader):
             _read_trace.append({'kwargs': copy.deepcopy(guess_kwargs),
                                 'Reader': guess_kwargs['Reader'].__class__,
                                 'status': 'Disabled: reader only available in fast version',
-                                'dt': '{0:.3f} ms'.format(0.0)})
+                                'dt': '{:.3f} ms'.format(0.0)})
             continue
 
         # If user required a fast reader then skip all non-fast readers
@@ -477,7 +394,7 @@ def _guess(table, read_kwargs, format, fast_reader):
             _read_trace.append({'kwargs': copy.deepcopy(guess_kwargs),
                                 'Reader': guess_kwargs['Reader'].__class__,
                                 'status': 'Disabled: no fast version of reader available',
-                                'dt': '{0:.3f} ms'.format(0.0)})
+                                'dt': '{:.3f} ms'.format(0.0)})
             continue
 
         guess_kwargs_ok = True  # guess_kwargs are consistent with user_kwargs?
@@ -531,14 +448,14 @@ def _guess(table, read_kwargs, format, fast_reader):
             _read_trace.append({'kwargs': copy.deepcopy(guess_kwargs),
                                 'Reader': reader.__class__,
                                 'status': 'Success (guessing)',
-                                'dt': '{0:.3f} ms'.format((time.time() - t0) * 1000)})
+                                'dt': '{:.3f} ms'.format((time.time() - t0) * 1000)})
             return dat
 
         except guess_exception_classes as err:
             _read_trace.append({'kwargs': copy.deepcopy(guess_kwargs),
-                                'status': '{0}: {1}'.format(err.__class__.__name__,
+                                'status': '{}: {}'.format(err.__class__.__name__,
                                                             str(err)),
-                                'dt': '{0:.3f} ms'.format((time.time() - t0) * 1000)})
+                                'dt': '{:.3f} ms'.format((time.time() - t0) * 1000)})
             failed_kwargs.append(guess_kwargs)
     else:
         # Failed all guesses, try the original read_kwargs without column requirements
@@ -553,7 +470,7 @@ def _guess(table, read_kwargs, format, fast_reader):
 
         except guess_exception_classes as err:
             _read_trace.append({'kwargs': copy.deepcopy(guess_kwargs),
-                                'status': '{0}: {1}'.format(err.__class__.__name__,
+                                'status': '{}: {}'.format(err.__class__.__name__,
                                                             str(err))})
             failed_kwargs.append(read_kwargs)
             lines = ['\nERROR: Unable to guess table format with the guesses listed below:']
@@ -563,7 +480,7 @@ def _guess(table, read_kwargs, format, fast_reader):
                 reader_repr = repr(kwargs.get('Reader', basic.Basic))
                 keys_vals = ['Reader:' + re.search(r"\.(\w+)'>", reader_repr).group(1)]
                 kwargs_sorted = ((key, kwargs[key]) for key in sorted_keys)
-                keys_vals.extend(['{}: {!r}'.format(key, val) for key, val in kwargs_sorted])
+                keys_vals.extend([f'{key}: {val!r}' for key, val in kwargs_sorted])
                 lines.append(' '.join(keys_vals))
 
             msg = ['',
@@ -822,52 +739,7 @@ def get_writer(Writer=None, fast_writer=True, **kwargs):
 
 def write(table, output=None, format=None, Writer=None, fast_writer=True, *,
           overwrite=None, **kwargs):
-    """Write the input ``table`` to ``filename``.  Most of the default behavior
-    for various parameters is determined by the Writer class.
-
-    See also:
-
-    - http://docs.astropy.org/en/stable/io/ascii/
-    - http://docs.astropy.org/en/stable/io/ascii/write.html
-
-    Parameters
-    ----------
-    table : `~astropy.io.ascii.BaseReader`, array_like, str, file_like, list
-        Input table as a Reader object, Numpy struct array, file name,
-        file-like object, list of strings, or single newline-separated string.
-    output : str, file_like
-        Output [filename, file-like object]. Defaults to``sys.stdout``.
-    format : str
-        Output table format. Defaults to 'basic'.
-    delimiter : str
-        Column delimiter string
-    comment : str
-        String defining a comment line in table
-    quotechar : str
-        One-character string to quote fields containing special characters
-    formats : dict
-        Dictionary of format specifiers or formatting functions
-    strip_whitespace : bool
-        Strip surrounding whitespace from column values.
-    names : list
-        List of names corresponding to each data column
-    include_names : list
-        List of names to include in output.
-    exclude_names : list
-        List of names to exclude from output (applied after ``include_names``)
-    fast_writer : bool
-        Whether to use the fast Cython writer.
-    overwrite : bool
-        If ``overwrite=None`` (default) and the file exists, then a
-        warning will be issued. In a future release this will instead
-        generate an exception. If ``overwrite=False`` and the file
-        exists, then an exception is raised.
-        This parameter is ignored when the ``output`` arg is not a string
-        (e.g., a file object).
-    Writer : ``Writer``
-        Writer class (DEPRECATED).
-
-    """
+    # Docstring inserted below
     if isinstance(output, str):
         if os.path.lexists(output):
             if overwrite is None:
@@ -877,7 +749,7 @@ def write(table, output=None, format=None, Writer=None, fast_writer=True, *,
                     "Use the argument 'overwrite=True' in the future.".format(
                         output), AstropyDeprecationWarning)
             elif not overwrite:
-                raise OSError("{} already exists".format(output))
+                raise OSError(f"{output} already exists")
 
     if output is None:
         output = sys.stdout
@@ -927,13 +799,20 @@ def write(table, output=None, format=None, Writer=None, fast_writer=True, *,
     # Write the lines to output
     outstr = os.linesep.join(lines)
     if not hasattr(output, 'write'):
-        output = open(output, 'w')
+        # NOTE: we need to specify newline='', otherwise the default
+        # behavior is for Python to translate \r\n (which we write because
+        # of os.linesep) into \r\r\n. Specifying newline='' disables any
+        # auto-translation.
+        output = open(output, 'w', newline='')
         output.write(outstr)
         output.write(os.linesep)
         output.close()
     else:
         output.write(outstr)
         output.write(os.linesep)
+
+
+write.__doc__ = core.WRITE_DOCSTRING
 
 
 def get_read_trace():

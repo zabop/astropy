@@ -51,7 +51,7 @@ Getting Started
    :maxdepth: 1
 
    install
-   whatsnew/3.2
+   whatsnew/4.0
    importing_astropy
    Example Gallery <generated/examples/index>
    Tutorials <http://tutorials.astropy.org/>
@@ -76,6 +76,7 @@ Data structures and transformations
    nddata/index
    table/index
    time/index
+   timeseries/index
    coordinates/index
    wcs/index
    modeling/index
@@ -121,9 +122,9 @@ Nuts and bolts
 
 .. _developer-docs:
 
-=======================
+***********************
 Developer Documentation
-=======================
+***********************
 
 The developer documentation contains instructions for how to contribute to
 Astropy or affiliated packages, as well as coding, documentation, and
@@ -137,6 +138,7 @@ as a whole, see :doc:`development/vision`.
    development/when_to_rebase
    development/codeguide
    development/docguide
+   development/style-guide
    development/testguide
    development/scripts
    development/building

@@ -11,7 +11,7 @@ from numpy.testing import assert_allclose
 from astropy import units as u
 from astropy.units import quantity_helper as qh
 from astropy._erfa import ufunc as erfa_ufunc
-from astropy.tests.helper import raises
+from astropy.tests.helper import raises, catch_warnings
 
 try:
     import scipy  # pylint: disable=W0611
@@ -537,7 +537,7 @@ class TestQuantityMathFuncs:
         # Can't use exp() with non-dimensionless quantities
         with pytest.raises(TypeError) as exc:
             function(3. * u.m / u.s)
-        assert exc.value.args[0] == ("Can only apply '{0}' function to "
+        assert exc.value.args[0] == ("Can only apply '{}' function to "
                                      "dimensionless quantities"
                                      .format(function.__name__))
 
@@ -589,7 +589,7 @@ class TestQuantityMathFuncs:
 
         with pytest.raises(TypeError) as exc:
             function(1. * u.km / u.s, 3. * u.m / u.s)
-        assert exc.value.args[0] == ("Can only apply '{0}' function to "
+        assert exc.value.args[0] == ("Can only apply '{}' function to "
                                      "dimensionless quantities"
                                      .format(function.__name__))
 
@@ -643,17 +643,16 @@ class TestInvariantUfuncs:
         assert q_o.unit == q_i1.unit
         assert_allclose(q_o.value, ufunc(q_i1.value, q_i2.to_value(q_i1.unit)))
 
-    @pytest.mark.parametrize(('ufunc'), [np.add, np.subtract, np.hypot,
-                                         np.maximum, np.minimum, np.nextafter,
-                                         np.remainder, np.mod, np.fmod])
-    def test_invariant_twoarg_one_arbitrary(self, ufunc):
-
+    @pytest.mark.parametrize(('ufunc', 'arbitrary'), [
+        (np.add, 0.), (np.subtract, 0.), (np.hypot, 0.),
+        (np.maximum, 0.), (np.minimum, 0.), (np.nextafter, 0.),
+        (np.remainder, np.inf), (np.mod, np.inf), (np.fmod, np.inf)])
+    def test_invariant_twoarg_one_arbitrary(self, ufunc, arbitrary):
         q_i1 = np.array([-3.3, 2.1, 10.2]) * u.kg / u.s
-        arbitrary_unit_value = np.array([0.])
-        q_o = ufunc(q_i1, arbitrary_unit_value)
+        q_o = ufunc(q_i1, arbitrary)
         assert isinstance(q_o, u.Quantity)
         assert q_o.unit == q_i1.unit
-        assert_allclose(q_o.value, ufunc(q_i1.value, arbitrary_unit_value))
+        assert_allclose(q_o.value, ufunc(q_i1.value, arbitrary))
 
     @pytest.mark.parametrize(('ufunc'), [np.add, np.subtract, np.hypot,
                                          np.maximum, np.minimum, np.nextafter,
@@ -685,11 +684,13 @@ class TestComparisonUfuncs:
         assert np.all(q_o2 == ufunc((q_i1 / q_i2)
                                     .to_value(u.dimensionless_unscaled), 2.))
         # comparison with 0., inf, nan is OK even for dimensional quantities
-        for arbitrary_unit_value in (0., np.inf, np.nan):
-            ufunc(q_i1, arbitrary_unit_value)
-            ufunc(q_i1, arbitrary_unit_value*np.ones(len(q_i1)))
-        # and just for completeness
-        ufunc(q_i1, np.array([0., np.inf, np.nan]))
+        # (though ignore numpy runtime warnings for comparisons with nan).
+        with catch_warnings(RuntimeWarning):
+            for arbitrary_unit_value in (0., np.inf, np.nan):
+                ufunc(q_i1, arbitrary_unit_value)
+                ufunc(q_i1, arbitrary_unit_value*np.ones(len(q_i1)))
+            # and just for completeness
+            ufunc(q_i1, np.array([0., np.inf, np.nan]))
 
     @pytest.mark.parametrize(('ufunc'), [np.greater, np.greater_equal,
                                          np.less, np.less_equal,
@@ -866,6 +867,92 @@ class TestInplaceUfuncs:
         a4 = u.Quantity([1, 2, 3, 4], u.m, dtype=np.int32)
         with pytest.raises(TypeError):
             a4 += u.Quantity(10, u.mm, dtype=np.int64)
+
+
+@pytest.mark.skipif(not hasattr(np.core.umath, 'clip'),
+                    reason='no clip ufunc available')
+class TestClip:
+    """Test the clip ufunc.
+
+    In numpy, this is hidden behind a function that does not backwards
+    compatibility checks.  We explicitly test the ufunc here.
+    """
+    def setup(self):
+        self.clip = np.core.umath.clip
+
+    def test_clip_simple(self):
+        q = np.arange(-1., 10.) * u.m
+        q_min = 125 * u.cm
+        q_max = 0.0055 * u.km
+        result = self.clip(q, q_min, q_max)
+        assert result.unit == q.unit
+        expected = self.clip(q.value, q_min.to_value(q.unit),
+                             q_max.to_value(q.unit)) * q.unit
+        assert np.all(result == expected)
+
+    def test_clip_unitless_parts(self):
+        q = np.arange(-1., 10.) * u.m
+        qlim = 0.0055 * u.km
+        # one-sided
+        result1 = self.clip(q, -np.inf, qlim)
+        expected1 = self.clip(q.value, -np.inf, qlim.to_value(q.unit)) * q.unit
+        assert np.all(result1 == expected1)
+        result2 = self.clip(q, qlim, np.inf)
+        expected2 = self.clip(q.value, qlim.to_value(q.unit), np.inf) * q.unit
+        assert np.all(result2 == expected2)
+        # Zero
+        result3 = self.clip(q, np.zeros(q.shape), qlim)
+        expected3 = self.clip(q.value, 0, qlim.to_value(q.unit)) * q.unit
+        assert np.all(result3 == expected3)
+        # Two unitless parts, array-shaped.
+        result4 = self.clip(q, np.zeros(q.shape), np.full(q.shape, np.inf))
+        expected4 = self.clip(q.value, 0, np.inf) * q.unit
+        assert np.all(result4 == expected4)
+
+    def test_clip_dimensionless(self):
+        q = np.arange(-1., 10.) * u.dimensionless_unscaled
+        result = self.clip(q, 200 * u.percent, 5.)
+        expected = self.clip(q, 2., 5.)
+        assert result.unit == u.dimensionless_unscaled
+        assert np.all(result == expected)
+
+    def test_clip_ndarray(self):
+        a = np.arange(-1., 10.)
+        result = self.clip(a, 200 * u.percent, 5. * u.dimensionless_unscaled)
+        assert isinstance(result, u.Quantity)
+        expected = self.clip(a, 2., 5.) * u.dimensionless_unscaled
+        assert np.all(result == expected)
+
+    def test_clip_quantity_inplace(self):
+        q = np.arange(-1., 10.) * u.m
+        q_min = 125 * u.cm
+        q_max = 0.0055 * u.km
+        expected = self.clip(q.value, q_min.to_value(q.unit),
+                             q_max.to_value(q.unit)) * q.unit
+        result = self.clip(q, q_min, q_max, out=q)
+        assert result is q
+        assert np.all(result == expected)
+
+    def test_clip_ndarray_dimensionless_output(self):
+        a = np.arange(-1., 10.)
+        q = np.zeros_like(a) * u.m
+        expected = self.clip(a, 2., 5.) * u.dimensionless_unscaled
+        result = self.clip(a, 200 * u.percent, 5. * u.dimensionless_unscaled,
+                           out=q)
+        assert result is q
+        assert result.unit == u.dimensionless_unscaled
+        assert np.all(result == expected)
+
+    def test_clip_errors(self):
+        q = np.arange(-1., 10.) * u.m
+        with pytest.raises(u.UnitsError):
+            self.clip(q, 0, 1*u.s)
+        with pytest.raises(u.UnitsError):
+            self.clip(q.value, 0, 1*u.s)
+        with pytest.raises(u.UnitsError):
+            self.clip(q, -1, 0.)
+        with pytest.raises(u.UnitsError):
+            self.clip(q, 0., 1.)
 
 
 class TestUfuncAt:
@@ -1162,6 +1249,6 @@ if HAS_SCIPY:
             # Can't use jv() with non-dimensionless quantities
             with pytest.raises(TypeError) as exc:
                 function(1. * u.kg, 3. * u.m / u.s)
-            assert exc.value.args[0] == ("Can only apply '{0}' function to "
+            assert exc.value.args[0] == ("Can only apply '{}' function to "
                                          "dimensionless quantities"
                                          .format(function.__name__))

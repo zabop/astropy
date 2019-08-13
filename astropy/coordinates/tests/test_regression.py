@@ -8,16 +8,18 @@ place to live
 
 
 import io
+import copy
 import pytest
 import numpy as np
 
 
 from astropy import units as u
-from astropy.coordinates import (AltAz, EarthLocation, SkyCoord, get_sun, ICRS, CIRS, ITRS,
-                GeocentricTrueEcliptic, Longitude, Latitude, GCRS, HCRS,
-                get_moon, FK4, FK4NoETerms, BaseCoordinateFrame,
-                QuantityAttribute, SphericalRepresentation,
-                UnitSphericalRepresentation, CartesianRepresentation)
+from astropy.coordinates import (AltAz, EarthLocation, SkyCoord, get_sun, ICRS,
+                GeocentricMeanEcliptic, Longitude, Latitude, GCRS, HCRS, CIRS,
+                get_moon, FK4, FK4NoETerms, BaseCoordinateFrame, ITRS,
+                QuantityAttribute, UnitSphericalRepresentation,
+                SphericalRepresentation, CartesianRepresentation,
+                FunctionTransform)
 from astropy.coordinates.sites import get_builtin_sites
 from astropy.time import Time
 from astropy.utils import iers
@@ -42,20 +44,24 @@ def test_regression_5085():
     At root was the transformation of Ecliptic coordinates with
     non-scalar times.
     """
+    # Note: for regression test, we need to be sure that we use UTC for the
+    # epoch, even though more properly that should be TT; but the "expected"
+    # values were calculated using that.
+    j2000 = Time('J2000', scale='utc')
     times = Time(["2015-08-28 03:30", "2015-09-05 10:30", "2015-09-15 18:35"])
     latitudes = Latitude([3.9807075, -5.00733806, 1.69539491]*u.deg)
     longitudes = Longitude([311.79678613, 72.86626741, 199.58698226]*u.deg)
     distances = u.Quantity([0.00243266, 0.0025424, 0.00271296]*u.au)
-    coo = GeocentricTrueEcliptic(lat=latitudes,
+    coo = GeocentricMeanEcliptic(lat=latitudes,
                                  lon=longitudes,
-                                 distance=distances, equinox=times)
+                                 distance=distances, obstime=times, equinox=times)
     # expected result
     ras = Longitude([310.50095400, 314.67109920, 319.56507428]*u.deg)
     decs = Latitude([-18.25190443, -17.1556676, -15.71616522]*u.deg)
     distances = u.Quantity([1.78309901, 1.710874, 1.61326649]*u.au)
     expected_result = GCRS(ra=ras, dec=decs,
-                           distance=distances, obstime="J2000").cartesian.xyz
-    actual_result = coo.transform_to(GCRS(obstime="J2000")).cartesian.xyz
+                           distance=distances, obstime=j2000).cartesian.xyz
+    actual_result = coo.transform_to(GCRS(obstime=j2000)).cartesian.xyz
     assert_quantity_allclose(expected_result, actual_result)
 
 
@@ -178,7 +184,7 @@ def test_regression_4210():
     Related PR with actual change: https://github.com/astropy/astropy/pull/4211
     """
     crd = SkyCoord(0*u.deg, 0*u.deg, distance=1*u.AU)
-    ecl = crd.geocentrictrueecliptic
+    ecl = crd.geocentricmeanecliptic
     # bug was that "lambda", which at the time was the name of the geocentric
     # ecliptic longitude, is a reserved keyword. So this just makes sure the
     # new name is are all valid
@@ -484,6 +490,7 @@ def test_regression_6347_3d():
     assert len(d2d_1) == 0
     assert type(d2d_1) is type(d2d_10)
 
+
 def test_regression_6300():
     """Check that importing old frame attribute names from astropy.coordinates
     still works. See comments at end of #6300
@@ -599,7 +606,7 @@ def test_regression_6697():
     """
     pint_vels = CartesianRepresentation(*(348.63632871, -212.31704928, -0.60154936), unit=u.m/u.s)
     location = EarthLocation(*(5327448.9957829, -1718665.73869569,  3051566.90295403), unit=u.m)
-    t = Time(2458036.161966612, format='jd', scale='utc')
+    t = Time(2458036.161966612, format='jd')
     obsgeopos, obsgeovel = location.get_gcrs_posvel(t)
     delta = (obsgeovel-pint_vels).norm()
     assert delta < 1*u.cm/u.s
@@ -610,3 +617,48 @@ def test_regression_8138():
     newframe = GCRS()
     sc2 = sc.transform_to(newframe)
     assert newframe.is_equivalent_frame(sc2.frame)
+
+
+def test_regression_8276():
+    from astropy.coordinates import baseframe
+
+    with pytest.raises(TypeError) as excinfo:
+        class MyFrame(BaseCoordinateFrame):
+            a = QuantityAttribute(unit=u.m)
+            # note that the remainder of this with clause does not get executed
+            # because an exception is raised here. A future PR is planned to
+            # allow the default to be left off, after which the rest of this
+            # test will get executed, so it is being left in place.  See
+            # https://github.com/astropy/astropy/pull/8300 for more info
+
+        # we save the transform graph so that it doesn't acidentally mess with other tests
+        old_transform_graph = baseframe.frame_transform_graph
+        try:
+            baseframe.frame_transform_graph = copy.copy(baseframe.frame_transform_graph)
+
+            # as reported in 8276, this fails right here because registering the
+            # transform tries to create a frame attribute
+            @baseframe.frame_transform_graph.transform(FunctionTransform, MyFrame, AltAz)
+            def trans(my_frame_coord, altaz_frame):
+                pass
+
+            # should also be able to *create* the Frame at this point
+            MyFrame()
+        finally:
+            baseframe.frame_transform_graph = old_transform_graph
+    assert "missing 1 required positional argument: 'default'" in str(excinfo.value)
+
+
+def test_regression_8615():
+    # note this is a "higher-level" symptom of the problem
+    # _erfa/tests/test_erfa:test_float32_input is testing for, but is kept here
+    # due to being a more practical version of the issue.
+
+    crf = CartesianRepresentation(np.array([3, 0, 4], dtype=float) * u.pc)
+    srf = SphericalRepresentation.from_cartesian(crf)  # does not error in 8615
+
+    cr = CartesianRepresentation(np.array([3, 0, 4], dtype='f4') * u.pc)
+    sr = SphericalRepresentation.from_cartesian(cr)  # errors in 8615
+
+    assert_quantity_allclose(sr.distance, 5 * u.pc)
+    assert_quantity_allclose(srf.distance, 5 * u.pc)

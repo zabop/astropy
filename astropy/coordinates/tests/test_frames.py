@@ -63,7 +63,7 @@ def test_frame_attribute_descriptor():
     # Make sure setting values via public attribute fails
     with pytest.raises(AttributeError) as err:
         t.attr_none = 5
-    assert 'Cannot set frame attribute' in str(err)
+    assert 'Cannot set frame attribute' in str(err.value)
 
 
 def test_frame_subclass_attribute_descriptor():
@@ -171,7 +171,7 @@ def test_no_data_nonscalar_frames():
     with pytest.raises(ValueError) as exc:
         AltAz(obstime=Time('2012-01-01') + np.arange(10.) * u.day,
               temperature=np.ones((3,)) * u.deg_C)
-    assert 'inconsistent shapes' in str(exc)
+    assert 'inconsistent shapes' in str(exc.value)
 
 
 def test_frame_repr():
@@ -357,7 +357,7 @@ def test_realizing():
     assert not i.has_data
     assert i2.has_data
 
-    f = FK5(equinox=Time('J2001', scale='utc'))
+    f = FK5(equinox=Time('J2001'))
     f2 = f.realize_frame(rep)
 
     assert not f.has_data
@@ -372,6 +372,7 @@ def test_realizing():
 
     assert ('Class passed as data instead of a representation' in
             excinfo.value.args[0])
+
 
 def test_replicating():
     from astropy.coordinates.builtin_frames import ICRS, AltAz
@@ -436,7 +437,7 @@ def test_transform():
 
     assert i2.data.__class__ != r.UnitSphericalRepresentation
 
-    f = FK5(ra=1*u.deg, dec=2*u.deg, equinox=Time('J2001', scale='utc'))
+    f = FK5(ra=1*u.deg, dec=2*u.deg, equinox=Time('J2001'))
     f4 = f.transform_to(FK4)
     f4_2 = f.transform_to(FK4(equinox=f.equinox))
 
@@ -451,7 +452,7 @@ def test_transform():
     assert_allclose(i.ra, i2.ra)
     assert_allclose(i.dec, i2.dec)
 
-    f = FK5(ra=1*u.deg, dec=2*u.deg, equinox=Time('J2001', scale='utc'))
+    f = FK5(ra=1*u.deg, dec=2*u.deg, equinox=Time('J2001'))
     f2 = f.transform_to(FK5)  # default equinox, so should be *different*
     assert f2.equinox == FK5().equinox
     with pytest.raises(AssertionError):
@@ -504,6 +505,17 @@ def test_sep():
     sep3d = i5.separation_3d(i6)
     assert_allclose(sep3d.to(u.kpc), np.array([2, 2])*u.kpc)
 
+    # 3d separations of dimensionless distances should still work
+    i7 = ICRS(ra=1*u.deg, dec=2*u.deg, distance=3*u.one)
+    i8 = ICRS(ra=1*u.deg, dec=2*u.deg, distance=4*u.one)
+    sep3d = i7.separation_3d(i8)
+    assert_allclose(sep3d, 1*u.one)
+
+    # but should fail with non-dimensionless
+    with pytest.raises(ValueError):
+        i7.separation_3d(i3)
+
+
 def test_time_inputs():
     """
     Test validation and conversion of inputs for equinox and obstime attributes.
@@ -517,18 +529,18 @@ def test_time_inputs():
 
     with pytest.raises(ValueError) as err:
         c = FK4(1 * u.deg, 2 * u.deg, equinox=1.5)
-    assert 'Invalid time input' in str(err)
+    assert 'Invalid time input' in str(err.value)
 
     with pytest.raises(ValueError) as err:
         c = FK4(1 * u.deg, 2 * u.deg, obstime='hello')
-    assert 'Invalid time input' in str(err)
+    assert 'Invalid time input' in str(err.value)
 
     # A vector time should work if the shapes match, but we don't automatically
     # broadcast the basic data (just like time).
     FK4([1, 2] * u.deg, [2, 3] * u.deg, obstime=['J2000', 'J2001'])
     with pytest.raises(ValueError) as err:
         FK4(1 * u.deg, 2 * u.deg, obstime=['J2000', 'J2001'])
-    assert 'shape' in str(err)
+    assert 'shape' in str(err.value)
 
 
 def test_is_frame_attr_default():
@@ -584,6 +596,7 @@ def test_representation():
     # Create some representation objects.
     icrs_cart = icrs.cartesian
     icrs_spher = icrs.spherical
+    icrs_cyl = icrs.cylindrical
 
     # Testing when `_representation` set to `CartesianRepresentation`.
     icrs.representation_type = r.CartesianRepresentation
@@ -598,7 +611,7 @@ def test_representation():
     for attr in ('ra', 'dec', 'distance'):
         with pytest.raises(AttributeError) as err:
             getattr(icrs, attr)
-        assert 'object has no attribute' in str(err)
+        assert 'object has no attribute' in str(err.value)
 
     # Testing when `_representation` set to `CylindricalRepresentation`.
     icrs.representation_type = r.CylindricalRepresentation
@@ -619,21 +632,30 @@ def test_representation():
     for attr in ('x', 'y', 'z'):
         with pytest.raises(AttributeError) as err:
             getattr(icrs, attr)
-        assert 'object has no attribute' in str(err)
+        assert 'object has no attribute' in str(err.value)
 
     # Testing setter input using text argument for cylindrical.
     icrs.representation_type = 'cylindrical'
 
     assert icrs.representation_type is r.CylindricalRepresentation
+    assert icrs_cyl.rho == icrs.rho
+    assert icrs_cyl.phi == icrs.phi
+    assert icrs_cyl.z == icrs.z
     assert icrs.data == data
+
+    # Testing that an ICRS object in CylindricalRepresentation must not have spherical attributes.
+    for attr in ('ra', 'dec', 'distance'):
+        with pytest.raises(AttributeError) as err:
+            getattr(icrs, attr)
+        assert 'object has no attribute' in str(err.value)
 
     with pytest.raises(ValueError) as err:
         icrs.representation_type = 'WRONG'
-    assert 'but must be a BaseRepresentation class' in str(err)
+    assert 'but must be a BaseRepresentation class' in str(err.value)
 
     with pytest.raises(ValueError) as err:
         icrs.representation_type = ICRS
-    assert 'but must be a BaseRepresentation class' in str(err)
+    assert 'but must be a BaseRepresentation class' in str(err.value)
 
 
 def test_represent_as():
@@ -687,6 +709,10 @@ def test_shorthand_representations():
 
     icrs = ICRS(rep)
 
+    cyl = icrs.cylindrical
+    assert isinstance(cyl, r.CylindricalRepresentation)
+    assert isinstance(cyl.differentials['s'], r.CylindricalDifferential)
+
     sph = icrs.spherical
     assert isinstance(sph, r.SphericalRepresentation)
     assert isinstance(sph.differentials['s'], r.SphericalDifferential)
@@ -704,11 +730,11 @@ def test_dynamic_attrs():
 
     with pytest.raises(AttributeError) as err:
         c.blahblah
-    assert "object has no attribute 'blahblah'" in str(err)
+    assert "object has no attribute 'blahblah'" in str(err.value)
 
     with pytest.raises(AttributeError) as err:
         c.ra = 1
-    assert "Cannot set any frame attribute" in str(err)
+    assert "Cannot set any frame attribute" in str(err.value)
 
     c.blahblah = 1
     assert c.blahblah == 1
@@ -796,13 +822,15 @@ def test_equivalent_frames():
     with pytest.raises(TypeError):
         assert i2.is_equivalent_frame(SkyCoord(i2))
 
-    f1 = FK5()
+    f0 = FK5()  # this J2000 is TT
+    f1 = FK5(equinox='J2000')
     f2 = FK5(1*u.deg, 2*u.deg, equinox='J2000')
     f3 = FK5(equinox='J2010')
     f4 = FK4(equinox='J2010')
 
     assert f1.is_equivalent_frame(f1)
     assert not i.is_equivalent_frame(f1)
+    assert f0.is_equivalent_frame(f1)
     assert f1.is_equivalent_frame(f2)
     assert not f1.is_equivalent_frame(f3)
     assert not f3.is_equivalent_frame(f4)
@@ -1009,12 +1037,12 @@ def test_missing_component_error_names():
 
     with pytest.raises(TypeError) as e:
         ICRS(ra=150 * u.deg)
-    assert "missing 1 required positional argument: 'dec'" in str(e)
+    assert "missing 1 required positional argument: 'dec'" in str(e.value)
 
     with pytest.raises(TypeError) as e:
         ICRS(ra=150*u.deg, dec=-11*u.deg,
              pm_ra=100*u.mas/u.yr, pm_dec=10*u.mas/u.yr)
-    assert "pm_ra_cosdec" in str(e)
+    assert "pm_ra_cosdec" in str(e.value)
 
 
 def test_non_spherical_representation_unit_creation(unitphysics):
@@ -1042,3 +1070,25 @@ def test_attribute_repr():
         attrtest = Attribute(default=Spam())
 
     assert "TEST REPR" in repr(TestFrame())
+
+
+def test_component_names_repr():
+    from astropy.coordinates.baseframe import BaseCoordinateFrame, RepresentationMapping
+
+    # Frame class with new component names that includes a name swap
+    class NameChangeFrame(BaseCoordinateFrame):
+        default_representation = r.PhysicsSphericalRepresentation
+
+        frame_specific_representation_info = {
+            r.PhysicsSphericalRepresentation: [
+                RepresentationMapping('phi', 'theta', u.deg),
+                RepresentationMapping('theta', 'phi', u.arcsec),
+                RepresentationMapping('r', 'JUSTONCE', u.AU)]
+        }
+    frame = NameChangeFrame(0*u.deg, 0*u.arcsec, 0*u.AU)
+
+    # Check for the new names in the Frame repr
+    assert "(theta, phi, JUSTONCE)" in repr(frame)
+
+    # Check that the letter "r" has not been replaced more than once in the Frame repr
+    assert repr(frame).count("JUSTONCE") == 1

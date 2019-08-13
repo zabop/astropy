@@ -143,8 +143,8 @@ def test_warning_logging_with_io_votable_warning():
     assert len(log_list) == 1
     assert len(warn_list) == 0
     assert log_list[0].levelname == 'WARNING'
-    x = log_list[0].message.startswith(("W02: ?:?:?: W02: a attribute 'b' is "
-                                        "invalid.  Must be a standard XML id"))
+    x = log_list[0].message.startswith("W02: ?:?:?: W02: a attribute 'b' is "
+                                        "invalid.  Must be a standard XML id")
     assert x
     assert log_list[0].origin == 'astropy.tests.test_logger'
 
@@ -187,7 +187,7 @@ def test_exception_logging_enable_twice():
 
 # You can't really override the exception handler in IPython this way, so
 # this test doesn't really make sense in the IPython context.
-@pytest.mark.skipif(str("ip is not None"))
+@pytest.mark.skipif("ip is not None")
 def test_exception_logging_overridden():
     log.enable_exception_logging()
     sys.excepthook = lambda etype, evalue, tb: None
@@ -196,7 +196,7 @@ def test_exception_logging_overridden():
     assert e.value.args[0] == 'Cannot disable exception logging: sys.excepthook was not set by this logger, or has been overridden'
 
 
-@pytest.mark.xfail(str("ip is not None"))
+@pytest.mark.xfail("ip is not None")
 def test_exception_logging():
 
     # Without exception logging
@@ -238,7 +238,7 @@ def test_exception_logging():
     assert len(log_list) == 0
 
 
-@pytest.mark.xfail(str("ip is not None"))
+@pytest.mark.xfail("ip is not None")
 def test_exception_logging_origin():
     # The point here is to get an exception raised from another location
     # and make sure the error's origin is reported correctly
@@ -264,7 +264,7 @@ def test_exception_logging_origin():
 
 
 @pytest.mark.skip(reason="Infinite recursion on Python 3.5+, probably a real issue")
-#@pytest.mark.xfail(str("ip is not None"))
+#@pytest.mark.xfail("ip is not None")
 def test_exception_logging_argless_exception():
     """
     Regression test for a crash that occurred on Python 3 when logging an

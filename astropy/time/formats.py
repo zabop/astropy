@@ -117,6 +117,8 @@ class TimeFormat(metaclass=TimeFormatMeta):
         If true then val1, val2 are jd1, jd2
     """
 
+    _default_scale = 'utc'  # As of astropy 0.4
+
     def __init__(self, val1, val2, scale, precision,
                  in_subfmt, out_subfmt, from_jd=False):
         self.scale = scale  # validation of scale done later with _check_scale
@@ -177,10 +179,12 @@ class TimeFormat(metaclass=TimeFormatMeta):
     def _check_val_type(self, val1, val2):
         """Input value validation, typically overridden by derived classes"""
         # val1 cannot contain nan, but val2 can contain nan
-        ok1 = val1.dtype == np.double and np.all(np.isfinite(val1))
-        ok2 = val2 is None or (val2.dtype == np.double and not np.any(np.isinf(val2)))
+        ok1 = (val1.dtype == np.double and np.all(np.isfinite(val1)) or
+               val1.size == 0)
+        ok2 = val2 is None or (val2.dtype == np.double and
+                               not np.any(np.isinf(val2))) or val2.size == 0
         if not (ok1 and ok2):
-            raise TypeError('Input values for {0} class must be finite doubles'
+            raise TypeError('Input values for {} class must be finite doubles'
                             .format(self.name))
 
         if getattr(val1, 'unit', None) is not None:
@@ -237,15 +241,12 @@ class TimeFormat(metaclass=TimeFormatMeta):
         scales.  Provide a different error message if `None` (no value) was
         supplied.
         """
-        if hasattr(self.__class__, 'epoch_scale') and scale is None:
-            scale = self.__class__.epoch_scale
-
         if scale is None:
-            scale = 'utc'  # Default scale as of astropy 0.4
+            scale = self._default_scale
 
         if scale not in TIME_SCALES:
-            raise ScaleValueError("Scale value '{0}' not in "
-                                  "allowed values {1}"
+            raise ScaleValueError("Scale value '{}' not in "
+                                  "allowed values {}"
                                   .format(scale, TIME_SCALES))
 
         return scale
@@ -429,8 +430,8 @@ class TimeFromEpoch(TimeFormat):
             tm = getattr(Time(jd1, jd2, scale=self.epoch_scale,
                               format='jd'), self.scale)
         except Exception as err:
-            raise ScaleValueError("Cannot convert from '{0}' epoch scale '{1}'"
-                                  "to specified scale '{2}', got error:\n{3}"
+            raise ScaleValueError("Cannot convert from '{}' epoch scale '{}'"
+                                  "to specified scale '{}', got error:\n{}"
                                   .format(self.name, self.epoch_scale,
                                           self.scale, err))
 
@@ -445,8 +446,8 @@ class TimeFromEpoch(TimeFormat):
             try:
                 tm = getattr(parent, self.epoch_scale)
             except Exception as err:
-                raise ScaleValueError("Cannot convert from '{0}' epoch scale '{1}'"
-                                      "to specified scale '{2}', got error:\n{3}"
+                raise ScaleValueError("Cannot convert from '{}' epoch scale '{}'"
+                                      "to specified scale '{}', got error:\n{}"
                                       .format(self.name, self.epoch_scale,
                                               self.scale, err))
 
@@ -460,6 +461,10 @@ class TimeFromEpoch(TimeFormat):
         return self.mask_if_needed(time_from_epoch)
 
     value = property(to_value)
+
+    @property
+    def _default_scale(self):
+        return self.epoch_scale
 
 
 class TimeUnix(TimeFromEpoch):
@@ -569,7 +574,7 @@ class TimeAstropyTime(TimeUnique):
         val1_0 = val1.flat[0]
         if not (isinstance(val1_0, Time) and all(type(val) is type(val1_0)
                                                  for val in val1.flat)):
-            raise TypeError('Input values for {0} class must all be same '
+            raise TypeError('Input values for {} class must all be same '
                             'astropy Time type.'.format(cls.name))
 
         if scale is None:
@@ -608,7 +613,7 @@ class TimeDatetime(TimeUnique):
     def _check_val_type(self, val1, val2):
         # Note: don't care about val2 for this class
         if not all(isinstance(val, datetime.datetime) for val in val1.flat):
-            raise TypeError('Input values for {0} class must be '
+            raise TypeError('Input values for {} class must be '
                             'datetime objects'.format(self.name))
         return val1, None
 
@@ -616,8 +621,8 @@ class TimeDatetime(TimeUnique):
         """Convert datetime object contained in val1 to jd1, jd2"""
         # Iterate through the datetime objects, getting year, month, etc.
         iterator = np.nditer([val1, None, None, None, None, None, None],
-                             flags=['refs_ok'],
-                             op_dtypes=[object] + 5*[np.intc] + [np.double])
+                             flags=['refs_ok', 'zerosize_ok'],
+                             op_dtypes=[None] + 5*[np.intc] + [np.double])
         for val, iy, im, id, ihr, imin, dsec in iterator:
             dt = val.item()
 
@@ -667,8 +672,8 @@ class TimeDatetime(TimeUnique):
         isecs = ihmsfs['s']
         ifracs = ihmsfs['f']
         iterator = np.nditer([iys, ims, ids, ihrs, imins, isecs, ifracs, None],
-                             flags=['refs_ok'],
-                             op_dtypes=7*[iys.dtype] + [object])
+                             flags=['refs_ok', 'zerosize_ok'],
+                             op_dtypes=7*[None] + [object])
 
         for iy, im, id, ihr, imin, isec, ifracsec, out in iterator:
             if isec >= 60:
@@ -749,8 +754,8 @@ class TimeString(TimeUnique):
 
     def _check_val_type(self, val1, val2):
         # Note: don't care about val2 for these classes
-        if val1.dtype.kind not in ('S', 'U'):
-            raise TypeError('Input values for {0} class must be strings'
+        if val1.dtype.kind not in ('S', 'U') and val1.size:
+            raise TypeError('Input values for {} class must be strings'
                             .format(self.name))
         return val1, None
 
@@ -792,7 +797,7 @@ class TimeString(TimeUnique):
             vals[-1] = vals[-1] + fracsec
             return vals
         else:
-            raise ValueError('Time {0} does not match {1} format'
+            raise ValueError('Time {} does not match {} format'
                              .format(timestr, self.name))
 
     def set_jds(self, val1, val2):
@@ -805,7 +810,8 @@ class TimeString(TimeUnique):
         to_string = (str if val1.dtype.kind == 'U' else
                      lambda x: str(x.item(), encoding='ascii'))
         iterator = np.nditer([val1, None, None, None, None, None, None],
-                             op_dtypes=[val1.dtype] + 5*[np.intc] + [np.double])
+                             flags=['zerosize_ok'],
+                             op_dtypes=[None] + 5*[np.intc] + [np.double])
         for val, iy, im, id, ihr, imin, dsec in iterator:
             val = to_string(val)
             iy[...], im[...], id[...], ihr[...], imin[...], dsec[...] = (
@@ -838,7 +844,8 @@ class TimeString(TimeUnique):
         isecs = ihmsfs['s']
         ifracs = ihmsfs['f']
         for iy, im, id, ihr, imin, isec, ifracsec in np.nditer(
-                [iys, ims, ids, ihrs, imins, isecs, ifracs]):
+                [iys, ims, ids, ihrs, imins, isecs, ifracs],
+                flags=['zerosize_ok']):
             if has_yday:
                 yday = datetime.datetime(iy, im, id).timetuple().tm_yday
 
@@ -882,7 +889,7 @@ class TimeString(TimeUnique):
         fnmatchcase = fnmatch.fnmatchcase
         subfmts = [x for x in self.subfmts if fnmatchcase(x[0], pattern)]
         if len(subfmts) == 0:
-            raise ValueError('No subformats match {0}'.format(pattern))
+            raise ValueError(f'No subformats match {pattern}')
         return subfmts
 
 
@@ -977,8 +984,12 @@ class TimeDatetime64(TimeISOT):
     def _check_val_type(self, val1, val2):
         # Note: don't care about val2 for this class`
         if not val1.dtype.kind == 'M':
-            raise TypeError('Input values for {0} class must be '
-                            'datetime64 objects'.format(self.name))
+            if val1.size > 0:
+                raise TypeError('Input values for {} class must be '
+                                'datetime64 objects'.format(self.name))
+            else:
+                val1 = np.array([], 'datetime64[D]')
+
         return val1, None
 
     def set_jds(self, val1, val2):
@@ -1060,7 +1071,7 @@ class TimeFITS(TimeString):
             if tm:
                 break
         else:
-            raise ValueError('Time {0} does not match {1} format'
+            raise ValueError('Time {} does not match {} format'
                              .format(timestr, self.name))
         tm = tm.groupdict()
         # Scale and realization are deprecated and strings in this form
@@ -1073,7 +1084,7 @@ class TimeFITS(TimeString):
             fits_scale = tm['scale'].upper()
             scale = FITS_DEPRECATED_SCALES.get(fits_scale, fits_scale.lower())
             if scale not in TIME_SCALES:
-                raise ValueError("Scale {0!r} is not in the allowed scales {1}"
+                raise ValueError("Scale {!r} is not in the allowed scales {}"
                                  .format(scale, sorted(TIME_SCALES)))
             # If no scale was given in the initialiser, set the scale to
             # that given in the string.  Realization is ignored
@@ -1082,7 +1093,7 @@ class TimeFITS(TimeString):
             if self._scale is None:
                 self._scale = scale
             if scale != self.scale:
-                raise ValueError("Input strings for {0} class must all "
+                raise ValueError("Input strings for {} class must all "
                                  "have consistent time scales."
                                  .format(self.name))
         return [int(tm['year']), int(tm['mon']), int(tm['mday']),
@@ -1096,7 +1107,7 @@ class TimeFITS(TimeString):
             # If we have times before year 0 or after year 9999, we can
             # output only in a "long" format, using signed 5-digit years.
             jd = self.jd1 + self.jd2
-            if jd.min() < 1721425.5 or jd.max() >= 5373484.5:
+            if jd.size and (jd.min() < 1721425.5 or jd.max() >= 5373484.5):
                 self.out_subfmt = 'long' + self.out_subfmt
         return super().value
 
@@ -1105,6 +1116,7 @@ class TimeEpochDate(TimeFormat):
     """
     Base class for support floating point Besselian and Julian epoch dates
     """
+    _default_scale = 'tt'  # As of astropy 3.2, this is no longer 'utc'.
 
     def set_jds(self, val1, val2):
         self._check_scale(self._scale)  # validate scale.
@@ -1147,13 +1159,15 @@ class TimeEpochDateString(TimeString):
     Base class to support string Besselian and Julian epoch dates
     such as 'B1950.0' or 'J2000.0' respectively.
     """
+    _default_scale = 'tt'  # As of astropy 3.2, this is no longer 'utc'.
 
     def set_jds(self, val1, val2):
         epoch_prefix = self.epoch_prefix
         # Be liberal in what we accept: convert bytes to ascii.
         to_string = (str if val1.dtype.kind == 'U' else
                      lambda x: str(x.item(), encoding='ascii'))
-        iterator = np.nditer([val1, None], op_dtypes=[val1.dtype, np.double])
+        iterator = np.nditer([val1, None], op_dtypes=[val1.dtype, np.double],
+                             flags=['zerosize_ok'])
         for val, years in iterator:
             try:
                 time_str = to_string(val)
@@ -1162,7 +1176,7 @@ class TimeEpochDateString(TimeString):
                 if epoch_type.upper() != epoch_prefix:
                     raise ValueError
             except (IndexError, ValueError, UnicodeEncodeError):
-                raise ValueError('Time {0} does not match {1} format'
+                raise ValueError('Time {} does not match {} format'
                                  .format(time_str, self.name))
             else:
                 years[...] = year
@@ -1210,8 +1224,8 @@ class TimeDeltaFormat(TimeFormat, metaclass=TimeDeltaFormatMeta):
         Check that the scale is in the allowed list of scales, or is `None`
         """
         if scale is not None and scale not in TIME_DELTA_SCALES:
-            raise ScaleValueError("Scale value '{0}' not in "
-                                  "allowed values {1}"
+            raise ScaleValueError("Scale value '{}' not in "
+                                  "allowed values {}"
                                   .format(scale, TIME_DELTA_SCALES))
 
         return scale
@@ -1244,15 +1258,15 @@ class TimeDeltaDatetime(TimeDeltaFormat, TimeUnique):
     def _check_val_type(self, val1, val2):
         # Note: don't care about val2 for this class
         if not all(isinstance(val, datetime.timedelta) for val in val1.flat):
-            raise TypeError('Input values for {0} class must be '
+            raise TypeError('Input values for {} class must be '
                             'datetime.timedelta objects'.format(self.name))
         return val1, None
 
     def set_jds(self, val1, val2):
         self._check_scale(self._scale)  # Validate scale.
         iterator = np.nditer([val1, None],
-                             flags=['refs_ok'],
-                             op_dtypes=[object] + [np.double])
+                             flags=['refs_ok', 'zerosize_ok'],
+                             op_dtypes=[None] + [np.double])
 
         for val, sec in iterator:
             sec[...] = val.item().total_seconds()
@@ -1263,8 +1277,8 @@ class TimeDeltaDatetime(TimeDeltaFormat, TimeUnique):
     @property
     def value(self):
         iterator = np.nditer([self.jd1 + self.jd2, None],
-                             flags=['refs_ok'],
-                             op_dtypes=[self.jd1.dtype] + [object])
+                             flags=['refs_ok', 'zerosize_ok'],
+                             op_dtypes=[None] + [object])
 
         for jd, out in iterator:
             out[...] = datetime.timedelta(days=jd.item())

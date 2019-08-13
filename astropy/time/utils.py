@@ -11,16 +11,25 @@ import numpy as np
 from astropy import units as u
 
 
-def day_frac(val1, val2, factor=1., divisor=1.):
-    """
-    Return the sum of ``val1`` and ``val2`` as two float64s, an integer part
-    and the fractional remainder.  If ``factor`` is not 1.0 then multiply the
-    sum by ``factor``.  If ``divisor`` is not 1.0 then divide the sum by
-    ``divisor``.
+def day_frac(val1, val2, factor=None, divisor=None):
+    """Return the sum of ``val1`` and ``val2`` as two float64s.
+
+    The returned floats are an integer part and the fractional remainder,
+    with the latter guaranteed to be within -0.5 and 0.5 (inclusive on
+    either side, as the integer is rounded to even).
 
     The arithmetic is all done with exact floating point operations so no
-    precision is lost to rounding error.  This routine assumes the sum is less
-    than about 1e16, otherwise the ``frac`` part will be greater than 1.0.
+    precision is lost to rounding error.  It is assumed the sum is less
+    than about 1e16, otherwise the remainder will be greater than 1.0.
+
+    Parameters
+    ----------
+    val1, val2 : array of float
+        Values to be summed.
+    factor : float, optional
+        If given, multiply the sum by it.
+    divisor : float, optional
+        If given, divide the sum by it.
 
     Returns
     -------
@@ -32,12 +41,12 @@ def day_frac(val1, val2, factor=1., divisor=1.):
     # and the second is the error of the float64 sum.
     sum12, err12 = two_sum(val1, val2)
 
-    if np.any(factor != 1.):
+    if factor is not None:
         sum12, carry = two_product(sum12, factor)
         carry += err12 * factor
         sum12, err12 = two_sum(sum12, carry)
 
-    if np.any(divisor != 1.):
+    if divisor is not None:
         q1 = sum12 / divisor
         p1, p2 = two_product(q1, divisor)
         d1, d2 = two_sum(sum12, -p1)
@@ -48,6 +57,12 @@ def day_frac(val1, val2, factor=1., divisor=1.):
 
     # get integer fraction
     day = np.round(sum12)
+    extra, frac = two_sum(sum12, -day)
+    frac += extra + err12
+    # Our fraction can now have gotten >0.5 or <-0.5, which means we would
+    # loose one bit of precision. So, correct for that.
+    excess = np.round(frac)
+    day += excess
     extra, frac = two_sum(sum12, -day)
     frac += extra + err12
     return day, frac

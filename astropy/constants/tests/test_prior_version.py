@@ -6,6 +6,7 @@ import pytest
 
 from astropy.constants import Constant
 from astropy.units import Quantity as Q
+from astropy.utils.exceptions import AstropyDeprecationWarning
 
 
 def test_c():
@@ -46,22 +47,21 @@ def test_h():
 
 def test_e():
 
-    from astropy.constants.astropyconst13 import e
+    from astropy.constants.astropyconst13 import e as e_13
 
     # A test quantity
     E = Q(100.00000348276221, 'V/m')
 
     # e.cgs is too ambiguous and should not work at all
     with pytest.raises(TypeError):
-        e.cgs * E
+        e_13.cgs * E
 
-    assert isinstance(e.si, Q)
-    assert isinstance(e.gauss, Q)
-    assert isinstance(e.esu, Q)
+    assert isinstance(e_13.si, Q)
+    assert isinstance(e_13.gauss, Q)
+    assert isinstance(e_13.esu, Q)
 
-    assert e.si * E == Q(100, 'eV/m')
-    assert e.gauss * E == Q(e.gauss.value * E.value, 'Fr V/m')
-    assert e.esu * E == Q(e.esu.value * E.value, 'Fr V/m')
+    assert e_13.gauss * E == Q(e_13.gauss.value * E.value, 'Fr V/m')
+    assert e_13.esu * E == Q(e_13.esu.value * E.value, 'Fr V/m')
 
 
 def test_g0():
@@ -93,6 +93,29 @@ def test_b_wien():
     t = 5778 * u.K
     w = (b_wien / t).to(u.nm)
     assert round(w.value) == 502
+
+
+def test_masses():
+    """Ensure mass values are set up correctly.
+    https://github.com/astropy/astropy/issues/8920
+    """
+    from astropy.constants import (
+        astropyconst13, astropyconst20, astropyconst40)
+
+    ref_text = "Allen's Astrophysical Quantities 4th Ed."
+    assert (astropyconst13.M_sun.reference == ref_text and
+            astropyconst13.M_jup.reference == ref_text and
+            astropyconst13.M_earth.reference == ref_text)
+
+    ref_text = "IAU 2015 Resolution B 3 + CODATA 2014"
+    assert (astropyconst20.M_sun.reference == ref_text and
+            astropyconst20.M_jup.reference == ref_text and
+            astropyconst20.M_earth.reference == ref_text)
+
+    ref_text = "IAU 2015 Resolution B 3 + CODATA 2018"
+    assert (astropyconst40.M_sun.reference == ref_text and
+            astropyconst40.M_jup.reference == ref_text and
+            astropyconst40.M_earth.reference == ref_text)
 
 
 def test_unit():
@@ -158,11 +181,20 @@ def test_view():
 def test_context_manager():
     from astropy import constants as const
 
-    with const.set_enabled_constants('astropyconst13'):
-        assert const.h.value == 6.62606957e-34  # CODATA2010
+    with pytest.warns(AstropyDeprecationWarning,
+                      match="Use 'astropy.physical_constants'"):
+        with const.set_enabled_constants('astropyconst13'):
+            assert const.h.value == 6.62606957e-34  # CODATA2010
 
-    assert const.h.value == 6.626070040e-34  # CODATA2014
+    with pytest.warns(AstropyDeprecationWarning,
+                      match="Use 'astropy.physical_constants'"):
+        with const.set_enabled_constants('astropyconst20'):
+            assert const.h.value == 6.626070040e-34  # CODATA2014
 
-    with pytest.raises(ValueError):
-        with const.set_enabled_constants('notreal'):
-            const.h
+    assert const.h.value == 6.62607015e-34  # CODATA2018
+
+    with pytest.raises(ImportError):
+        with pytest.warns(AstropyDeprecationWarning,
+                          match="Use 'astropy.physical_constants'"):
+            with const.set_enabled_constants('notreal'):
+                const.h

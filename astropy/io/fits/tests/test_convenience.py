@@ -8,6 +8,7 @@ import pytest
 import numpy as np
 
 from astropy.io import fits
+from astropy import units as u
 from astropy.table import Table
 from astropy.io.fits import printdiff
 from astropy.tests.helper import catch_warnings
@@ -64,6 +65,16 @@ class TestConvenience(FitsTestCase):
         assert isinstance(hdu, fits.BinTableHDU)
         filename = self.temp('test_table_to_hdu.fits')
         hdu.writeto(filename, overwrite=True)
+
+    def test_table_non_stringifyable_unit_to_hdu(self):
+        table = Table([[1, 2, 3], ['a', 'b', 'c'], [2.3, 4.5, 6.7]],
+                      names=['a', 'b', 'c'], dtype=['i', 'U1', 'f'])
+        table['a'].unit = u.core.IrreducibleUnit("test")
+
+        with catch_warnings() as w:
+            fits.table_to_hdu(table)
+            assert len(w) == 1
+            assert str(w[0].message).startswith("The unit 'test' could not be saved to FITS format")
 
     def test_table_to_hdu_convert_comment_convention(self):
         """
@@ -157,9 +168,47 @@ class TestConvenience(FitsTestCase):
         fits.tabledump(self.temp('tb.fits'), datafile=self.temp('test_tb.txt'))
         assert os.path.isfile(self.temp('test_tb.txt'))
 
+    def test_append_filename(self):
+        """
+        Test fits.append with a filename argument.
+        """
+        data = np.arange(6)
+        testfile = self.temp('test_append_1.fits')
+
+        # Test case 1: creation of file
+        fits.append(testfile, data=data, checksum=True)
+
+        # Test case 2: append to existing file, with verify=True
+        # Also test that additional keyword can be passed to fitsopen
+        fits.append(testfile, data=data * 2, checksum=True, ignore_blank=True)
+
+        # Test case 3: append to existing file, with verify=False
+        fits.append(testfile, data=data * 3, checksum=True, verify=False)
+
+        with fits.open(testfile, checksum=True) as hdu1:
+            np.testing.assert_array_equal(hdu1[0].data, data)
+            np.testing.assert_array_equal(hdu1[1].data, data * 2)
+            np.testing.assert_array_equal(hdu1[2].data, data * 3)
+
     @pytest.mark.parametrize('mode', ['wb', 'wb+', 'ab', 'ab+'])
     def test_append_filehandle(self, tmpdir, mode):
-
+        """
+        Test fits.append with a file handle argument.
+        """
         append_file = tmpdir.join('append.fits')
         with append_file.open(mode) as handle:
             fits.append(filename=handle, data=np.ones((4, 4)))
+
+    def test_append_with_header(self):
+        """
+        Test fits.append with a fits Header, which triggers detection of the
+        HDU class. Regression test for
+        https://github.com/astropy/astropy/issues/8660
+        """
+        testfile = self.temp('test_append_1.fits')
+        with fits.open(self.data('test0.fits')) as hdus:
+            for hdu in hdus:
+                fits.append(testfile, hdu.data, hdu.header, checksum=True)
+
+        with fits.open(testfile, checksum=True) as hdus:
+            assert len(hdus) == 5

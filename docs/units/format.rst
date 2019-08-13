@@ -157,7 +157,7 @@ following formats:
     <https://www.iau.org/static/publications/stylemanual1989.pdf>`__
     recommendations for unit presentation, using negative powers instead of
     fractions, as required by some journals (e.g., `Apj and AJ
-    <http://journals.aas.org/authors/manuscript.html#_Toc2.2>`_.)
+    <https://journals.aas.org/manuscript-preparation/>`_.)
     Best suited for unit representation inline with text::
 
       >>> fluxunit.to_string('latex_inline')  # doctest: +SKIP
@@ -197,8 +197,11 @@ Normally, passing an unrecognized unit string raises an exception::
   Traceback (most recent call last):
     ...
   ValueError: 'Angstroem' did not parse as fits unit: At col 0, Unit
-  'Angstroem' not supported by the FITS standard. Did you mean
-  Angstrom or angstrom?
+  'Angstroem' not supported by the FITS standard. Did you mean Angstrom
+  or angstrom? If this is meant to be a custom unit, define it with
+  'u.def_unit'. To have it recognized inside a file reader or other
+  code, enable it with 'u.add_enabled_units'. For details, see
+  http://docs.astropy.org/en/latest/units/combining_and_defining.html
 
 However, the `~astropy.units.Unit` constructor has the keyword
 argument ``parse_strict`` that can take one of three values to control

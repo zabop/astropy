@@ -157,9 +157,9 @@ class HeaderFormatter:
 
             if idx > 0:  # Separate HDUs by a blank line
                 result.append('\n')
-            result.append('# HDU {} in {}:\n'.format(hdu, self.filename))
+            result.append(f'# HDU {hdu} in {self.filename}:\n')
             for c in cards:
-                result.append('{}\n'.format(c))
+                result.append(f'{c}\n')
         return ''.join(result)
 
     def _get_cards(self, hdukey, keywords, compressed):
@@ -194,7 +194,7 @@ class HeaderFormatter:
             else:
                 header = self._hdulist[hdukey].header
         except (IndexError, KeyError):
-            message = '{0}: Extension {1} not found.'.format(self.filename,
+            message = '{}: Extension {} not found.'.format(self.filename,
                                                              hdukey)
             if self.verbose:
                 log.warning(message)
@@ -219,6 +219,9 @@ class HeaderFormatter:
                                         hdukey=hdukey,
                                         kw=kw))
         return cards
+
+    def close(self):
+        self._hdulist.close()
 
 
 class TableHeaderFormatter(HeaderFormatter):
@@ -259,6 +262,8 @@ def print_headers_traditional(args):
     for idx, filename in enumerate(args.filename):  # support wildcards
         if idx > 0 and not args.keywords:
             print()  # print a newline between different files
+
+        formatter = None
         try:
             formatter = HeaderFormatter(filename)
             print(formatter.parse(args.extensions,
@@ -266,6 +271,9 @@ def print_headers_traditional(args):
                                   args.compressed), end='')
         except OSError as e:
             log.error(str(e))
+        finally:
+            if formatter:
+                formatter.close()
 
 
 def print_headers_as_table(args):
@@ -279,6 +287,7 @@ def print_headers_as_table(args):
     tables = []
     # Create a Table object for each file
     for filename in args.filename:  # Support wildcards
+        formatter = None
         try:
             formatter = TableHeaderFormatter(filename)
             tbl = formatter.parse(args.extensions,
@@ -288,6 +297,10 @@ def print_headers_as_table(args):
                 tables.append(tbl)
         except OSError as e:
             log.error(str(e))  # file not found or unreadable
+        finally:
+            if formatter:
+                formatter.close()
+
     # Concatenate the tables
     if len(tables) == 0:
         return False
@@ -314,6 +327,7 @@ def print_headers_as_comparison(args):
     tables = []
     # Create a Table object for each file
     for filename in args.filename:  # Support wildcards
+        formatter = None
         try:
             formatter = TableHeaderFormatter(filename, verbose=False)
             tbl = formatter.parse(args.extensions,
@@ -327,6 +341,10 @@ def print_headers_as_comparison(args):
             tables.append(tbl)
         except OSError as e:
             log.error(str(e))  # file not found or unreadable
+        finally:
+            if formatter:
+                formatter.close()
+
     # Concatenate the tables
     if len(tables) == 0:
         return False

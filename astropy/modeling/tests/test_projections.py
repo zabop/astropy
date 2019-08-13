@@ -26,6 +26,7 @@ def test_Projection_properties():
 
 PIX_COORDINATES = [-10, 30]
 
+MAPS_DIR = os.path.join(os.pardir, os.pardir, "wcs", "tests", "data", "maps")
 
 pars = [(x,) for x in projections.projcodes]
 # There is no groundtruth file for the XPH projection available here:
@@ -37,14 +38,13 @@ pars.remove(('XPH',))
 def test_Sky2Pix(code):
     """Check astropy model eval against wcslib eval"""
 
-    wcs_map = os.path.join(os.pardir, os.pardir, "wcs", "tests", "maps",
-                           "1904-66_{0}.hdr".format(code))
+    wcs_map = os.path.join(MAPS_DIR, f"1904-66_{code}.hdr")
     test_file = get_pkg_data_filename(wcs_map)
     header = fits.Header.fromfile(test_file, endcard=False, padding=False)
 
     params = []
     for i in range(3):
-        key = 'PV2_{0}'.format(i + 1)
+        key = 'PV2_{}'.format(i + 1)
         if key in header:
             params.append(header[key])
 
@@ -65,14 +65,13 @@ def test_Sky2Pix(code):
 def test_Pix2Sky(code):
     """Check astropy model eval against wcslib eval"""
 
-    wcs_map = os.path.join(os.pardir, os.pardir, "wcs", "tests", "maps",
-                           "1904-66_{0}.hdr".format(code))
+    wcs_map = os.path.join(MAPS_DIR, f"1904-66_{code}.hdr")
     test_file = get_pkg_data_filename(wcs_map)
     header = fits.Header.fromfile(test_file, endcard=False, padding=False)
 
     params = []
     for i in range(3):
-        key = 'PV2_{0}'.format(i + 1)
+        key = 'PV2_{}'.format(i + 1)
         if key in header:
             params.append(header[key])
 
@@ -94,14 +93,13 @@ def test_Pix2Sky(code):
 def test_Sky2Pix_unit(code):
     """Check astropy model eval against wcslib eval"""
 
-    wcs_map = os.path.join(os.pardir, os.pardir, "wcs", "tests", "maps",
-                           "1904-66_{0}.hdr".format(code))
+    wcs_map = os.path.join(MAPS_DIR, f"1904-66_{code}.hdr")
     test_file = get_pkg_data_filename(wcs_map)
     header = fits.Header.fromfile(test_file, endcard=False, padding=False)
 
     params = []
     for i in range(3):
-        key = 'PV2_{0}'.format(i + 1)
+        key = 'PV2_{}'.format(i + 1)
         if key in header:
             params.append(header[key])
 
@@ -122,14 +120,13 @@ def test_Sky2Pix_unit(code):
 def test_Pix2Sky_unit(code):
     """Check astropy model eval against wcslib eval"""
 
-    wcs_map = os.path.join(os.pardir, os.pardir, "wcs", "tests", "maps",
-                           "1904-66_{0}.hdr".format(code))
+    wcs_map = os.path.join(MAPS_DIR, f"1904-66_{code}.hdr")
     test_file = get_pkg_data_filename(wcs_map)
     header = fits.Header.fromfile(test_file, endcard=False, padding=False)
 
     params = []
     for i in range(3):
-        key = 'PV2_{0}'.format(i + 1)
+        key = 'PV2_{}'.format(i + 1)
         if key in header:
             params.append(header[key])
 
@@ -173,8 +170,7 @@ class TestZenithalPerspective:
 
     def setup_class(self):
         ID = 'AZP'
-        wcs_map = os.path.join(os.pardir, os.pardir, "wcs", "tests", "maps",
-                               "1904-66_{0}.hdr".format(ID))
+        wcs_map = os.path.join(MAPS_DIR, f"1904-66_{ID}.hdr")
         test_file = get_pkg_data_filename(wcs_map)
         header = fits.Header.fromfile(test_file, endcard=False, padding=False)
         self.wazp = wcs.WCS(header)
@@ -205,8 +201,7 @@ class TestCylindricalPerspective:
 
     def setup_class(self):
         ID = "CYP"
-        wcs_map = os.path.join(os.pardir, os.pardir, "wcs", "tests", "maps",
-                               "1904-66_{0}.hdr".format(ID))
+        wcs_map = os.path.join(MAPS_DIR, f"1904-66_{ID}.hdr")
         test_file = get_pkg_data_filename(wcs_map)
         header = fits.Header.fromfile(test_file, endcard=False, padding=False)
         self.wazp = wcs.WCS(header)

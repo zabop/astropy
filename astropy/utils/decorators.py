@@ -9,8 +9,8 @@ import textwrap
 import types
 import warnings
 from inspect import signature
+from functools import wraps
 
-from .codegen import make_function_with_signature
 from .exceptions import (AstropyDeprecationWarning, AstropyUserWarning,
                          AstropyPendingDeprecationWarning)
 
@@ -84,7 +84,7 @@ def deprecated(since, message='', name='', alternative='', pending=False,
         old_doc = textwrap.dedent(old_doc).strip('\n')
         new_doc = (('\n.. deprecated:: {since}'
                     '\n    {message}\n\n'.format(
-                    **{'since': since, 'message': message.strip()})) + old_doc)
+                     **{'since': since, 'message': message.strip()})) + old_doc)
         if not old_doc:
             # This is to prevent a spurious 'unexpected unindent' warning from
             # docutils when the original docstring was blank.
@@ -185,7 +185,7 @@ def deprecated(since, message='', name='', alternative='', pending=False,
                 message = ('The {func} {obj_type} is deprecated and may '
                            'be removed in a future version.')
             if alternative:
-                altmessage = '\n        Use {} instead.'.format(alternative)
+                altmessage = f'\n        Use {alternative} instead.'
 
         message = ((message.format(**{
             'func': name,
@@ -275,8 +275,9 @@ def deprecated_attribute(name, since, message=None, alternative=None,
 def deprecated_renamed_argument(old_name, new_name, since,
                                 arg_in_kwargs=False, relax=False,
                                 pending=False,
-                                warning_type=AstropyDeprecationWarning):
-    """Deprecate a _renamed_ function argument.
+                                warning_type=AstropyDeprecationWarning,
+                                alternative=''):
+    """Deprecate a _renamed_ or _removed_ function argument.
 
     The decorator assumes that the argument with the ``old_name`` was removed
     from the function signature and the ``new_name`` replaced it at the
@@ -289,8 +290,9 @@ def deprecated_renamed_argument(old_name, new_name, since,
     old_name : str or list/tuple thereof
         The old name of the argument.
 
-    new_name : str or list/tuple thereof
-        The new name of the argument.
+    new_name : str or list/tuple thereof or `None`
+        The new name of the argument. Set this to `None` to remove the
+        argument ``old_name`` instead of renaming it.
 
     since : str or number or list/tuple thereof
         The release at which the old argument became deprecated.
@@ -317,6 +319,12 @@ def deprecated_renamed_argument(old_name, new_name, since,
     warning_type : warning
         Warning to be issued.
         Default is `~astropy.utils.exceptions.AstropyDeprecationWarning`.
+
+    alternative : str, optional
+        An alternative function or class name that the user may use in
+        place of the deprecated object if ``new_name`` is None. The deprecation
+        warning will tell the user about this alternative if provided.
+
 
     Raises
     ------
@@ -395,6 +403,7 @@ def deprecated_renamed_argument(old_name, new_name, since,
     In this case ``arg_in_kwargs`` and ``relax`` can be a single value (which
     is applied to all renamed arguments) or must also be a `tuple` or `list`
     with values for each of the arguments.
+
     """
     cls_iter = (list, tuple)
     if isinstance(old_name, cls_iter):
@@ -427,8 +436,24 @@ def deprecated_renamed_argument(old_name, new_name, since,
 
         for i in range(n):
             # Determine the position of the argument.
-            if new_name[i] in arguments:
-                param = arguments[new_name[i]]
+            if arg_in_kwargs[i]:
+                pass
+            else:
+                if new_name[i] is None:
+                    continue
+                elif new_name[i] in arguments:
+                    param = arguments[new_name[i]]
+                # In case the argument is not found in the list of arguments
+                # the only remaining possibility is that it should be caught
+                # by some kind of **kwargs argument.
+                # This case has to be explicitly specified, otherwise throw
+                # an exception!
+                else:
+                    raise TypeError('"{}" was not specified in the function '
+                                    'signature. If it was meant to be part of '
+                                    '"**kwargs" then set "arg_in_kwargs" to "True"'
+                                    '.'.format(new_name[i]))
+
                 # There are several possibilities now:
 
                 # 1.) Positional or keyword argument:
@@ -443,21 +468,8 @@ def deprecated_renamed_argument(old_name, new_name, since,
                 # 3.) positional-only argument, varargs, varkwargs or some
                 #     unknown type:
                 else:
-                    raise TypeError('cannot replace argument "{0}" of kind '
-                                    '{1!r}.'.format(new_name[i], param.kind))
-
-            # In case the argument is not found in the list of arguments
-            # the only remaining possibility is that it should be caught
-            # by some kind of **kwargs argument.
-            # This case has to be explicitly specified, otherwise throw
-            # an exception!
-            elif arg_in_kwargs[i]:
-                position[i] = None
-            else:
-                raise TypeError('"{}" was not specified in the function '
-                                'signature. If it was meant to be part of '
-                                '"**kwargs" then set "arg_in_kwargs" to "True"'
-                                '.'.format(new_name[i]))
+                    raise TypeError('cannot replace argument "{}" of kind '
+                                    '{!r}.'.format(new_name[i], param.kind))
 
         @functools.wraps(function)
         def wrapper(*args, **kwargs):
@@ -467,15 +479,19 @@ def deprecated_renamed_argument(old_name, new_name, since,
                 # parameter was renamed to newkeyword.
                 if old_name[i] in kwargs:
                     value = kwargs.pop(old_name[i])
-                    # Display the deprecation warning only when it's only
+                    # Display the deprecation warning only when it's not
                     # pending.
                     if not pending[i]:
-                        warnings.warn(
-                            '"{0}" was deprecated in version {1} '
-                            'and will be removed in a future version. '
-                            'Use argument "{2}" instead.'
-                            ''.format(old_name[i], since[i], new_name[i]),
-                            warning_type, stacklevel=2)
+                        message = ('"{}" was deprecated in version {} '
+                                   'and will be removed in a future version. '
+                                   .format(old_name[i], since[i]))
+                        if new_name[i] is not None:
+                            message += ('Use argument "{}" instead.'
+                                        .format(new_name[i]))
+                        elif alternative:
+                            message += ('\n        Use {} instead.'
+                                        .format(alternative))
+                        warnings.warn(message, warning_type, stacklevel=2)
 
                     # Check if the newkeyword was given as well.
                     newarg_in_args = (position[i] is not None and
@@ -497,9 +513,11 @@ def deprecated_renamed_argument(old_name, new_name, since,
                                     'cannot specify both "{}" and "{}"'
                                     '.'.format(old_name[i], new_name[i]))
                     else:
-                        # If the new argument isn't specified just pass the old
-                        # one with the name of the new argument to the function
-                        kwargs[new_name[i]] = value
+                        # Pass the value of the old argument with the
+                        # name of the new argument to the function
+                        if new_name[i] is not None:
+                            kwargs[new_name[i]] = value
+
             return function(*args, **kwargs)
 
         return wrapper
@@ -814,84 +832,6 @@ class sharedmethod(classmethod):
     @staticmethod
     def _make_method(func, instance):
         return types.MethodType(func, instance)
-
-
-def wraps(wrapped, assigned=functools.WRAPPER_ASSIGNMENTS,
-          updated=functools.WRAPPER_UPDATES, exclude_args=()):
-    """
-    An alternative to `functools.wraps` which also preserves the original
-    function's call signature by way of
-    `~astropy.utils.codegen.make_function_with_signature`.
-
-    This also adds an optional ``exclude_args`` argument.  If given it should
-    be a sequence of argument names that should not be copied from the wrapped
-    function (either positional or keyword arguments).
-
-    The documentation for the original `functools.wraps` follows:
-
-    """
-
-    wrapped_args = _get_function_args(wrapped, exclude_args=exclude_args)
-
-    def wrapper(func):
-        if '__name__' in assigned:
-            name = wrapped.__name__
-        else:
-            name = func.__name__
-
-        func = make_function_with_signature(func, name=name, **wrapped_args)
-        func = functools.update_wrapper(func, wrapped, assigned=assigned,
-                                        updated=updated)
-        return func
-
-    return wrapper
-
-
-if (isinstance(wraps.__doc__, str) and
-        wraps.__doc__ is not None and functools.wraps.__doc__ is not None):
-    wraps.__doc__ += functools.wraps.__doc__
-
-
-def _get_function_args_internal(func):
-    """
-    Utility function for `wraps`.
-
-    Reads the argspec for the given function and converts it to arguments
-    for `make_function_with_signature`.
-    """
-
-    argspec = inspect.getfullargspec(func)
-
-    if argspec.defaults:
-        args = argspec.args[:-len(argspec.defaults)]
-        kwargs = zip(argspec.args[len(args):], argspec.defaults)
-    else:
-        args = argspec.args
-        kwargs = []
-
-    if argspec.kwonlyargs:
-        kwargs.extend((argname, argspec.kwonlydefaults[argname])
-                      for argname in argspec.kwonlyargs)
-
-    return {'args': args, 'kwargs': kwargs, 'varargs': argspec.varargs,
-            'varkwargs': argspec.varkw}
-
-
-def _get_function_args(func, exclude_args=()):
-    all_args = _get_function_args_internal(func)
-
-    if exclude_args:
-        exclude_args = set(exclude_args)
-
-        for arg_type in ('args', 'kwargs'):
-            all_args[arg_type] = [arg for arg in all_args[arg_type]
-                                  if arg not in exclude_args]
-
-        for arg_type in ('varargs', 'varkwargs'):
-            if all_args[arg_type] in exclude_args:
-                all_args[arg_type] = None
-
-    return all_args
 
 
 def format_doc(docstring, *args, **kwargs):

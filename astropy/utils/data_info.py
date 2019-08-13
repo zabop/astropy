@@ -191,9 +191,8 @@ class DataInfo:
     called ``info`` so that the DataInfo() object can be stored in the
     ``instance`` using the ``info`` key.  Because owner_cls.x is a descriptor,
     Python doesn't use __dict__['x'] normally, and the descriptor can safely
-    store stuff there.  Thanks to http://nbviewer.ipython.org/urls/
-    gist.github.com/ChrisBeaumont/5758381/raw/descriptor_writeup.ipynb for
-    this trick that works for non-hashable classes.
+    store stuff there.  Thanks to http://nbviewer.ipython.org/urls/gist.github.com/ChrisBeaumont/5758381/raw/descriptor_writeup.ipynb
+    for this trick that works for non-hashable classes.
 
     Parameters
     ----------
@@ -339,7 +338,7 @@ reference with ``c = col[3:5]`` followed by ``c.info``.""")
 
         # Finally this must be an actual data attribute that this class is handling.
         if attr not in self.attr_names:
-            raise AttributeError("attribute must be one of {0}".format(self.attr_names))
+            raise AttributeError(f"attribute must be one of {self.attr_names}")
 
         if attr == 'parent_table':
             value = None if value is None else weakref.ref(value)
@@ -434,7 +433,7 @@ reference with ``c = col[3:5]`` followed by ``c.info``.""")
                 if hasattr(self, 'info_summary_' + option):
                     option = getattr(self, 'info_summary_' + option)
                 else:
-                    raise ValueError('option={0} is not an allowed information type'
+                    raise ValueError('option={} is not an allowed information type'
                                      .format(option))
 
             with warnings.catch_warnings():
@@ -461,7 +460,7 @@ reference with ``c = col[3:5]`` followed by ``c.info``.""")
 
         for key, val in info.items():
             if val != '':
-                out.write('{0} = {1}'.format(key, val) + os.linesep)
+                out.write(f'{key} = {val}' + os.linesep)
 
     def __repr__(self):
         if self._parent is None:
@@ -647,6 +646,10 @@ class BaseColumnInfo(DataInfo):
         if len(uniq_shapes) != 1:
             raise TableMergeError('columns have different shapes')
         out['shape'] = uniq_shapes.pop()
+
+        # "Merged" output name is the supplied name
+        if name is not None:
+            out['name'] = name
 
         return out
 

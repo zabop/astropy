@@ -91,15 +91,15 @@ class TestCore(FitsTestCase):
         table = hdulist[1]
         assert table.data.dtype.names == ('c1', 'c2', 'c3', 'c4')
         assert table.columns.names == ['c1', 'c2', 'c3', 'c4']
-        table.columns.del_col(str('c1'))
+        table.columns.del_col('c1')
         assert table.data.dtype.names == ('c2', 'c3', 'c4')
         assert table.columns.names == ['c2', 'c3', 'c4']
 
-        table.columns.del_col(str('c3'))
+        table.columns.del_col('c3')
         assert table.data.dtype.names == ('c2', 'c4')
         assert table.columns.names == ['c2', 'c4']
 
-        table.columns.add_col(fits.Column(str('foo'), str('3J')))
+        table.columns.add_col(fits.Column('foo', '3J'))
         assert table.data.dtype.names == ('c2', 'c4', 'foo')
         assert table.columns.names == ['c2', 'c4', 'foo']
 
@@ -137,7 +137,7 @@ class TestCore(FitsTestCase):
 
         header = fits.Header()
         comment = 'number of bits per data pixel'
-        card = fits.Card.fromstring('BITPIX  = 32 / {}'.format(comment))
+        card = fits.Card.fromstring(f'BITPIX  = 32 / {comment}')
         header.append(card)
 
         header['BITPIX'] = 32
@@ -273,13 +273,9 @@ class TestCore(FitsTestCase):
         # silentfix+exception should only mention the unfixable error in the
         # exception
         hdu = make_invalid_hdu()
-        try:
+        with pytest.raises(fits.VerifyError, match=r'Illegal keyword name') as excinfo:
             hdu.verify('silentfix+exception')
-        except fits.VerifyError as exc:
-            assert 'Illegal keyword name' in str(exc)
-            assert 'not upper case' not in str(exc)
-        else:
-            self.fail('An exception should have been raised.')
+        assert 'not upper case' not in str(excinfo.value)
 
         # fix+ignore is not too useful, but it should warn about the fixed
         # problems while saying nothing about the unfixable problems
@@ -299,13 +295,9 @@ class TestCore(FitsTestCase):
 
         # fix+exception
         hdu = make_invalid_hdu()
-        try:
+        with pytest.raises(fits.VerifyError, match=r'Illegal keyword name') as excinfo:
             hdu.verify('fix+exception')
-        except fits.VerifyError as exc:
-            assert 'Illegal keyword name' in str(exc)
-            assert 'not upper case' in str(exc)
-        else:
-            self.fail('An exception should have been raised.')
+        assert 'not upper case' in str(excinfo.value)
 
     def test_getext(self):
         """
@@ -313,8 +305,11 @@ class TestCore(FitsTestCase):
         the convenience functions.
         """
         filename = self.data('test0.fits')
+
         hl, ext = _getext(filename, 'readonly', 1)
         assert ext == 1
+        hl.close()
+
         pytest.raises(ValueError, _getext, filename, 'readonly',
                       1, 2)
         pytest.raises(ValueError, _getext, filename, 'readonly',
@@ -323,10 +318,15 @@ class TestCore(FitsTestCase):
                       'sci', 'sci')
         pytest.raises(TypeError, _getext, filename, 'readonly',
                       1, 2, 3)
+
         hl, ext = _getext(filename, 'readonly', ext=1)
         assert ext == 1
+        hl.close()
+
         hl, ext = _getext(filename, 'readonly', ext=('sci', 2))
         assert ext == ('sci', 2)
+        hl.close()
+
         pytest.raises(TypeError, _getext, filename, 'readonly',
                       1, ext=('sci', 2), extver=3)
         pytest.raises(TypeError, _getext, filename, 'readonly',
@@ -334,13 +334,21 @@ class TestCore(FitsTestCase):
 
         hl, ext = _getext(filename, 'readonly', 'sci')
         assert ext == ('sci', 1)
+        hl.close()
+
         hl, ext = _getext(filename, 'readonly', 'sci', 1)
         assert ext == ('sci', 1)
+        hl.close()
+
         hl, ext = _getext(filename, 'readonly', ('sci', 1))
         assert ext == ('sci', 1)
+        hl.close()
+
         hl, ext = _getext(filename, 'readonly', 'sci',
                           extver=1, do_not_scale_image_data=True)
         assert ext == ('sci', 1)
+        hl.close()
+
         pytest.raises(TypeError, _getext, filename, 'readonly',
                       'sci', ext=1)
         pytest.raises(TypeError, _getext, filename, 'readonly',
@@ -348,13 +356,15 @@ class TestCore(FitsTestCase):
 
         hl, ext = _getext(filename, 'readonly', extname='sci')
         assert ext == ('sci', 1)
+        hl.close()
+
         hl, ext = _getext(filename, 'readonly', extname='sci',
                           extver=1)
         assert ext == ('sci', 1)
+        hl.close()
+
         pytest.raises(TypeError, _getext, filename, 'readonly',
                       extver=1)
-
-        hl.close()  # Close file handler
 
     def test_extension_name_case_sensitive(self):
         """
@@ -513,7 +523,7 @@ class TestCore(FitsTestCase):
             # Add a bunch of header keywords so that the data will be forced to
             # new offsets within the file:
             for idx in range(40):
-                hdul1[1].header['TEST{}'.format(idx)] = 'test'
+                hdul1[1].header[f'TEST{idx}'] = 'test'
 
             hdul1.writeto(self.temp('test1.fits'))
             hdul1.writeto(self.temp('test2.fits'))
@@ -578,10 +588,8 @@ class TestFileFunctions(FitsTestCase):
         OSError (and not some other arbitrary exception).
         """
 
-        try:
+        with pytest.raises(OSError, match=r'No such file or directory'):
             fits.open(self.temp('foobar.fits'))
-        except OSError as e:
-            assert 'No such file or directory' in str(e)
 
         # But opening in ostream or append mode should be okay, since they
         # allow writing new files
@@ -1041,8 +1049,8 @@ class TestFileFunctions(FitsTestCase):
 
         with fits.open(self.data('test0.fits'), memmap=True) as hdulist:
             with patch.object(mmap, 'mmap', side_effect=mmap_patched) as p:
-                with pytest.warns(AstropyUserWarning, match="Could not memory "
-                                  "map array with mode='readonly'"):
+                with pytest.warns(AstropyUserWarning, match=r"Could not memory "
+                                  r"map array with mode='readonly'"):
                     data = hdulist[1].data
                 p.reset_mock()
             assert not data.flags.writeable
@@ -1157,7 +1165,7 @@ class TestFileFunctions(FitsTestCase):
 
         self._test_write_string_bytes_io(io.BytesIO())
 
-    @pytest.mark.skipif(str('sys.platform.startswith("win32")'))
+    @pytest.mark.skipif('sys.platform.startswith("win32")')
     def test_filename_with_colon(self):
         """
         Test reading and writing a file with a colon in the filename.
@@ -1336,7 +1344,7 @@ class TestStreamingFunctions(FitsTestCase):
         pytest.raises(fits.VerifyError, hdul.writeto, filename,
                       output_verify='exception')
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             hdul.writeto(filename, output_verify='fix')
         with fits.open(filename):
             assert hdul[1].name == '12345678'
@@ -1361,8 +1369,9 @@ class TestStreamingFunctions(FitsTestCase):
 
     def test_error_if_memmap_impossible(self):
         pth = self.data('blank.fits')
-        with pytest.raises(ValueError):
-            fits.open(pth, memmap=True)[0].data
+        with fits.open(pth, memmap=True) as hdul:
+            with pytest.raises(ValueError):
+                hdul[0].data
 
         # However, it should not fail if do_not_scale_image_data was used:
         # See https://github.com/astropy/astropy/issues/3766

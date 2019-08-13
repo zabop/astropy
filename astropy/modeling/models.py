@@ -5,7 +5,7 @@ Creates a common namespace for all pre-defined models.
 """
 
 
-from .core import custom_model  # pylint: disable=W0611
+from .core import custom_model, hide_inverse  # pylint: disable=W0611
 from .mappings import *
 from .projections import *
 from .rotations import *
@@ -60,7 +60,7 @@ MODELS_WITH_CONSTRAINTS = [
     Linear1D, Lorentz1D, MexicanHat1D, MexicanHat2D,
     PowerLaw1D, Sersic1D, Sersic2D, Sine1D, Trapezoid1D, TrapezoidDisk2D,
     Chebyshev1D, Chebyshev2D, Hermite1D, Hermite2D, Legendre2D, Legendre1D,
-    Polynomial1D, Polynomial2D, Voigt1D
+    Polynomial1D, Polynomial2D, Voigt1D, KingProjectedAnalytic1D
 ]
 
 

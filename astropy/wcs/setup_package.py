@@ -1,8 +1,5 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-CONTACT = "Michael Droettboom"
-EMAIL = "mdroe@stsci.edu"
-
 import io
 from os.path import join
 import os.path
@@ -13,11 +10,12 @@ from distutils.core import Extension
 from distutils.dep_util import newer_group
 
 
+from astropy_helpers.utils import import_file
 from astropy_helpers import setup_helpers
 from astropy_helpers.distutils_helpers import get_distutils_build_option
 
 WCSROOT = os.path.relpath(os.path.dirname(__file__))
-WCSVERSION = "5.19.1"
+WCSVERSION = "6.2.0"
 
 
 def b(s):
@@ -70,10 +68,10 @@ def write_wcsconfig_h(paths):
     #define HAVE_WCSLIB_VERSION 1
 
     /* WCSLIB library version number. */
-    #define WCSLIB_VERSION {0}
+    #define WCSLIB_VERSION {}
 
     /* 64-bit integer data type. */
-    #define WCSLIB_INT64 {1}
+    #define WCSLIB_INT64 {}
 
     /* Windows needs some other defines to prevent inclusion of wcsset()
        which conflicts with wcslib's wcsset().  These need to be set
@@ -113,7 +111,7 @@ def write_wcsconfig_h(paths):
 
 
 def generate_c_docstrings():
-    from astropy.wcs import docstrings
+    docstrings = import_file(os.path.join(WCSROOT, 'docstrings.py'))
     docstrings = docstrings.__dict__
     keys = [
         key for key, val in docstrings.items()
@@ -137,7 +135,7 @@ its contents, edit astropy/wcs/docstrings.py
 """)
     for key in keys:
         val = docs[key]
-        h_file.write('extern char doc_{0}[{1}];\n'.format(key, len(val)))
+        h_file.write('extern char doc_{}[{}];\n'.format(key, len(val)))
     h_file.write("\n#endif\n\n")
 
     setup_helpers.write_if_different(
@@ -165,7 +163,7 @@ MSVC, do not support string literals greater than 256 characters.
         for i in range(0, len(val), 12):
             section = val[i:i+12]
             c_file.write('    ')
-            c_file.write(''.join('0x{0:02x}, '.format(x) for x in section))
+            c_file.write(''.join(f'0x{x:02x}, ' for x in section))
             c_file.write('\n')
 
         c_file.write("    };\n\n")
@@ -176,7 +174,8 @@ MSVC, do not support string literals greater than 256 characters.
 
 
 def get_wcslib_cfg(cfg, wcslib_files, include_paths):
-    from astropy.version import debug
+
+    debug = import_file(os.path.join(WCSROOT, '..', 'version.py')).debug
 
     cfg['include_dirs'].append('numpy')
     cfg['define_macros'].extend([
@@ -203,7 +202,7 @@ def get_wcslib_cfg(cfg, wcslib_files, include_paths):
         cfg['define_macros'].append(('DEBUG', None))
         cfg['undef_macros'].append('NDEBUG')
         if (not sys.platform.startswith('sun') and
-            not sys.platform == 'win32'):
+                not sys.platform == 'win32'):
             cfg['extra_compile_args'].extend(["-fno-inline", "-O0", "-g"])
     else:
         # Define ECHO as nothing to prevent spurious newlines from
@@ -294,7 +293,7 @@ def get_extensions():
     cfg['sources'] = [str(x) for x in cfg['sources']]
     cfg = dict((str(key), val) for key, val in cfg.items())
 
-    return [Extension(str('astropy.wcs._wcs'), **cfg)]
+    return [Extension('astropy.wcs._wcs', **cfg)]
 
 
 def get_package_data():
@@ -334,12 +333,8 @@ def get_package_data():
             api_files.append(join('include', 'wcslib', header))
 
     return {
-        str('astropy.wcs.tests'): ['data/*.hdr', 'data/*.fits',
-                                   'data/*.txt', 'data/*.fits.gz',
-                                   'maps/*.hdr', 'spectra/*.hdr',
-                                   'extension/*.c'],
-        str('astropy.wcs'): api_files,
-        str('astropy.wcs.wcsapi'): ['ucds.txt']
+        'astropy.wcs.tests': ['extension/*.c'],
+        'astropy.wcs': api_files,
     }
 
 

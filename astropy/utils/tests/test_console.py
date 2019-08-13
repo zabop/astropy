@@ -4,9 +4,7 @@
 
 import io
 
-import numpy as np
 import pytest
-
 
 from . import test_progress_bar_func
 from astropy.utils import console
@@ -62,7 +60,7 @@ def test_fake_tty():
     assert f2.getvalue() == ''
 
 
-@pytest.mark.skipif(str("sys.platform.startswith('win')"))
+@pytest.mark.skipif("sys.platform.startswith('win')")
 def test_color_text():
     assert console._color_text("foo", "green") == '\033[0;32mfoo\033[0m'
 
@@ -86,7 +84,7 @@ def test_color_print2():
     assert stream.getvalue() == 'foobarbaz\n'
 
 
-@pytest.mark.skipif(str("sys.platform.startswith('win')"))
+@pytest.mark.skipif("sys.platform.startswith('win')")
 def test_color_print3():
     # Test that this thinks the FakeTTY is a tty and applies colors.
 
@@ -164,6 +162,11 @@ def test_progress_bar_map():
     result = console.ProgressBar.map(test_progress_bar_func.func,
                                      items, step=10, multiprocess=True)
     assert items == result
+
+    result1 = console.ProgressBar.map(test_progress_bar_func.func,
+                                      items, step=10, multiprocess=2)
+
+    assert items == result1
 
 
 @pytest.mark.parametrize(("seconds", "string"),

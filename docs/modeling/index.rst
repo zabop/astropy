@@ -32,6 +32,24 @@ fitting routines (while making it reasonably easy to do when necessary).
     us know on the `astropy-dev mailing list`_ or at
     http://feedback.astropy.org
 
+.. _modeling-major-changes-for-4.0:
+
+Major changes to Modeling for 4.0
+=================================
+
+A number of significant changes have been made to the internals that have been
+documented in more detail in :doc:`changes_for_4`. This summarizes the two
+biggest changes:
+
+- Expressions of model classes no longer is supported. (Expressions of model
+  instances are still very much supported!)
+
+- Parameter values now are contained in the parameter instance. Previously they
+  were contained in the model referencing the parameter. The previous behavior
+  resulted in compound models parameters not sharing the same value as the
+  constituent models, if one of them changed, the other didn't. Now they
+  see exactly the same value.
+
 .. _modeling-getting-started:
 
 Getting started
@@ -283,12 +301,7 @@ The resulting object ``g1_plus_2`` is itself a new model.  Evaluating, say,
     >>> g1_plus_2(0.25) == g1(0.25) + g2(0.25)
     True
 
-This model can be further combined with other models in new expressions.  It is
-also possible to define entire new model *classes* using arithmetic expressions
-of other model classes.  This allows general compound models to be created
-without specifying any parameter values up front.  This more advanced usage is
-explained in more detail in the :ref:`compound model documentation
-<compound-model-classes>`.
+This model can be further combined with other models in new expressions.
 
 These new compound models can also be fitted to data, like most other models
 (though this currently requires one of the non-linear fitters):
@@ -396,9 +409,10 @@ Using `astropy.modeling`
    bounding-boxes
    algorithms
    units
+   changes_for_4.rst
 
-.. note that if this section gets too long, it should be moved to a separate 
-   doc page - see the top of performance.inc.rst for the instructions on how to do 
+.. note that if this section gets too long, it should be moved to a separate
+   doc page - see the top of performance.inc.rst for the instructions on how to do
    that
 .. include:: performance.inc.rst
 

@@ -8,6 +8,33 @@ For many common cases this will simplify the process of file I/O and reduce the 
 master the separate details of all the I/O packages within Astropy.  For
 details on the implementation see :ref:`io_registry`.
 
+Getting started with Image I/O
+==============================
+
+Reading and writing image data in the unified I/O interface is supported
+though the `~astropy.nddata.CCDData` class using FITS file format:
+
+.. doctest-skip::
+
+    >>> # Read CCD image
+    >>> ccd = CCDData.read('image.fits')
+
+.. doctest-skip::
+
+    >>> # Write back CCD image
+    >>> ccd.write('new_image.fits')
+
+Note the unit is stored in the ``BUNIT`` keyword in the header on saving, and is
+read from the header if it is present.
+
+Detailed help on the available keyword arguments for reading and writing
+can be obtained via the ``help()`` method as follows:
+
+.. doctest-skip::
+
+    >>> CCDData.read.help('fits')  # Get help on the CCDData FITS reader
+    >>> CCDData.writer.help('fits')  # Get help on the CCDData FITS writer
+
 Getting started with Table I/O
 ==============================
 
@@ -59,10 +86,31 @@ fine control of the way to write out certain columns, for instance
 writing an ISO format Time column as a pair of JD1 / JD2 floating
 point values (for full resolution) or as a formatted ISO date string.
 
+Getting help on readers and writers
+-----------------------------------
 
-Any additional arguments specified will depend on the format.  For examples of this see the
-section `Built-in table readers/writers`_.  This section also provides the full list of
-choices for the ``format`` argument.
+Each file format is handled by a specific reader or writer, and each of those
+functions will have its own set of arguments.  For examples of
+this see the section `Built-in table readers/writers`_.  This section also
+provides the full list of choices for the ``format`` argument.
+
+To get help on the available arguments for each format, use the ``help()``
+method of the `~astropy.table.Table.read` or `~astropy.table.Table.write`
+methods.  Each of these calls prints a long help document which is divided
+into two sections, the generic read/write documentation (common to any
+call) and the format-specific documentation.  For ASCII tables the
+format-specific documentation includes the generic `astropy.io.ascii` package
+interface and then a description of the particular ASCII subformat.
+
+In the examples below we do not show the long output:
+
+.. doctest-skip::
+
+    >>> Table.read.help('fits')
+    >>> Table.read.help('ascii')
+    >>> Table.read.help('ascii.latex')
+    >>> Table.write.help('hdf5')
+    >>> Table.write.help('csv')
 
 Command-line utility
 --------------------
@@ -89,7 +137,8 @@ Built-in table readers/writers
 
 The :class:`~astropy.table.Table` class has built-in support for various input
 and output formats including :ref:`table_io_ascii`,
--:ref:`table_io_fits`, :ref:`table_io_hdf5`, and :ref:`table_io_votable`.
+-:ref:`table_io_fits`, :ref:`table_io_hdf5`, :ref:`table_io_pandas`,
+and :ref:`table_io_votable`.
 
 A full list of the supported formats and corresponding classes
 is shown in the table below.
@@ -122,6 +171,10 @@ ascii.fixed_width_no_header    Yes          :class:`~astropy.io.ascii.FixedWidth
                   ascii.tab    Yes          :class:`~astropy.io.ascii.Tab`: Basic table with tab-separated values
                        fits    Yes    auto  :mod:`~astropy.io.fits`: Flexible Image Transport System file
                        hdf5    Yes    auto  HDF5_: Hierarchical Data Format binary file
+                 pandas.csv    Yes          Wrapper around ``pandas.read_csv()`` and ``pandas.to_csv()``
+                 pandas.fwf     No          Wrapper around ``pandas.read_fwf()`` (fixed width format)
+                pandas.html    Yes          Wrapper around ``pandas.read_html()`` and ``pandas.to_html()``
+                pandas.json    Yes          Wrapper around ``pandas.read_json()`` and ``pandas.to_json()``
                     votable    Yes    auto  :mod:`~astropy.io.votable`: Table format used by Virtual Observatory (VO) initiative
 ===========================  =====  ======  ============================================================================================
 
@@ -747,7 +800,7 @@ By default, ``serialize_method`` for Time columns is equal to
      In the FITS standard, the reference position for a time coordinate is a scalar
      expressed via keywords. However, vectorized reference position or location can
      be supported by the `Green Bank Keyword Convention
-     <https://fits.gsfc.nasa.gov/registry/greenbank.html/>`_ which is a Registered FITS
+     <https://fits.gsfc.nasa.gov/registry/greenbank.html>`_ which is a Registered FITS
      Convention. In Astropy Time, location can be an array which is broadcastable to the
      Time values.
 
@@ -850,6 +903,42 @@ specify the deprecated ``compatibility_mode`` keyword::
 
 .. warning:: The ``compatibility_mode`` keyword will be removed in a future
    version of astropy so your code should be changed.
+
+.. _table_io_pandas:
+
+Pandas
+------
+
+.. _pandas: https://pandas.pydata.org/pandas-docs/stable/index.html
+
+Astropy `~astropy.table.Table` supports the ability to read or write tables
+using some of the `I/O methods <https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html>`_
+available within pandas_.  This interface thus provides
+convenient wrappers to the following functions / methods:
+
+.. csv-table::
+    :header: "Format name", "Data Description", "Reader", "Writer"
+    :widths: 25, 25, 25, 25
+    :delim: ;
+
+    ``pandas.csv``;`CSV <https://en.wikipedia.org/wiki/Comma-separated_values>`__;`read_csv() <https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-read-csv-table>`_;`to_csv() <https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-store-in-csv>`_
+    ``pandas.json``;`JSON <https://www.json.org/>`__;`read_json() <https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-json-reader>`_;`to_json() <https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-json-writer>`_
+    ``pandas.html``;`HTML <https://en.wikipedia.org/wiki/HTML>`__;`read_html() <https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-read-html>`_;`to_html() <https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#io-html>`_
+    ``pandas.fwf``;Fixed Width;`read_fwf() <https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_fwf.html#pandas.read_fwf>`_;
+
+**Notes**:
+
+- There is no fixed width writer in pandas_.
+- Reading HTML requires `BeautifulSoup4 <https://pypi.org/project/beautifulsoup4/>`_ and
+  `html5lib <https://pypi.org/project/html5lib/>`_ to be installed.
+
+When reading or writing a table, any keyword arguments apart from the ``format`` and file
+name are passed through to pandas, for instance:
+
+.. doctest-skip::
+
+  >>> t.write('data.csv', format='pandas.csv', sep=' ', header=False)
+  >>> t2 = Table.read('data.csv', format='pandas.csv', sep=' ', names=['a', 'b', 'c'])
 
 .. _table_io_jsviewer:
 

@@ -1,7 +1,6 @@
 # Licensed under a 3-clause BSD style license - see PYFITS.rst
 
 
-
 import datetime
 import os
 import sys
@@ -13,7 +12,8 @@ import numpy as np
 
 from astropy.io.fits import conf
 from astropy.io.fits.file import _File
-from astropy.io.fits.header import Header, _pad_length
+from astropy.io.fits.header import (Header, _BasicHeader, _pad_length,
+                                    _DelayedHeader)
 from astropy.io.fits.util import (_is_int, _is_pseudo_unsigned, _unsigned_zero,
                     itersubclasses, decode_ascii, _get_array_mmap, first,
                     _free_space_check, _extract_number)
@@ -55,8 +55,19 @@ class InvalidHDUException(Exception):
 
 def _hdu_class_from_header(cls, header):
     """
-    Used primarily by _BaseHDU.__new__ to find an appropriate HDU class to use
-    based on values in the header.  See the _BaseHDU.__new__ docstring.
+    Iterates through the subclasses of _BaseHDU and uses that class's
+    match_header() method to determine which subclass to instantiate.
+
+    It's important to be aware that the class hierarchy is traversed in a
+    depth-last order.  Each match_header() should identify an HDU type as
+    uniquely as possible.  Abstract types may choose to simply return False
+    or raise NotImplementedError to be skipped.
+
+    If any unexpected exceptions are raised while evaluating
+    match_header(), the type is taken to be _CorruptedHDU.
+
+    Used primarily by _BaseHDU._readfrom_internal and _BaseHDU._from_data to
+    find an appropriate HDU class to use based on values in the header.
     """
 
     klass = cls  # By default, if no subclasses are defined
@@ -76,7 +87,7 @@ def _hdu_class_from_header(cls, header):
             except Exception as exc:
                 warnings.warn(
                     'An exception occurred matching an HDU header to the '
-                    'appropriate HDU type: {0}'.format(exc),
+                    'appropriate HDU type: {}'.format(exc),
                     AstropyUserWarning)
                 warnings.warn('The HDU will be treated as corrupted.',
                               AstropyUserWarning)
@@ -133,27 +144,15 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
 
     _default_name = ''
 
-    def __new__(cls, data=None, header=None, *args, **kwargs):
-        """
-        Iterates through the subclasses of _BaseHDU and uses that class's
-        match_header() method to determine which subclass to instantiate.
-
-        It's important to be aware that the class hierarchy is traversed in a
-        depth-last order.  Each match_header() should identify an HDU type as
-        uniquely as possible.  Abstract types may choose to simply return False
-        or raise NotImplementedError to be skipped.
-
-        If any unexpected exceptions are raised while evaluating
-        match_header(), the type is taken to be _CorruptedHDU.
-        """
-
-        klass = _hdu_class_from_header(cls, header)
-        return super().__new__(klass)
+    # _header uses a descriptor to delay the loading of the fits.Header object
+    # until it is necessary.
+    _header = _DelayedHeader()
 
     def __init__(self, data=None, header=None, *args, **kwargs):
         if header is None:
             header = Header()
         self._header = header
+        self._header_str = None
         self._file = None
         self._buffer = None
         self._header_offset = None
@@ -373,6 +372,15 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
                         checksum=checksum)
 
     @classmethod
+    def _from_data(cls, data, header, **kwargs):
+        """
+        Instantiate the HDU object after guessing the HDU class from the
+        FITS Header.
+        """
+        klass = _hdu_class_from_header(cls, header)
+        return klass(data=data, header=header, **kwargs)
+
+    @classmethod
     def _readfrom_internal(cls, data, header=None, checksum=False,
                            ignore_missing_end=False, **kwargs):
         """
@@ -390,7 +398,20 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
         if isinstance(data, _File):
             if header is None:
                 header_offset = data.tell()
-                header = Header.fromfile(data, endcard=not ignore_missing_end)
+                try:
+                    # First we try to read the header with the fast parser
+                    # from _BasicHeader, which will read only the standard
+                    # 8 character keywords to get the structural keywords
+                    # that are needed to build the HDU object.
+                    header_str, header = _BasicHeader.fromfile(data)
+                except Exception:
+                    # If the fast header parsing failed, then fallback to
+                    # the classic Header parser, which has better support
+                    # and reporting for the various issues that can be found
+                    # in the wild.
+                    data.seek(header_offset)
+                    header = Header.fromfile(data,
+                                             endcard=not ignore_missing_end)
             hdu_fileobj = data
             data_offset = data.tell()  # *after* reading the header
         else:
@@ -452,6 +473,17 @@ class _BaseHDU(metaclass=_BaseHDUMeta):
         # data area size, including padding
         size = hdu.size
         hdu._data_size = size + _pad_length(size)
+
+        if isinstance(hdu._header, _BasicHeader):
+            # Delete the temporary _BasicHeader.
+            # We need to do this before an eventual checksum computation,
+            # since it needs to modify temporarily the header
+            #
+            # The header string is stored in the HDU._header_str attribute,
+            # so that it can be used directly when we need to create the
+            # classic Header object, without having to parse again the file.
+            del hdu._header
+            hdu._header_str = header_str
 
         # Checksums are not checked on invalid HDU types
         if checksum and checksum != 'remove' and isinstance(hdu, _ValidHDU):
@@ -868,6 +900,13 @@ class _ValidHDU(_BaseHDU, _Verify):
     def __init__(self, data=None, header=None, name=None, ver=None, **kwargs):
         super().__init__(data=data, header=header)
 
+        if (header is not None and
+                not isinstance(header, (Header, _BasicHeader))):
+            # TODO: Instead maybe try initializing a new Header object from
+            # whatever is passed in as the header--there are various types
+            # of objects that could work for this...
+            raise ValueError('header must be a Header object')
+
         # NOTE:  private data members _checksum and _datasum are used by the
         # utility script "fitscheck" to detect missing checksums.
         self._checksum = None
@@ -1108,8 +1147,8 @@ class _ValidHDU(_BaseHDU, _Verify):
 
         # if the card does not exist
         if index is None:
-            err_text = "'{}' card does not exist.".format(keyword)
-            fix_text = "Fixed by inserting a new '{}' card.".format(keyword)
+            err_text = f"'{keyword}' card does not exist."
+            fix_text = f"Fixed by inserting a new '{keyword}' card."
             if fixable:
                 # use repr to accommodate both string and non-string types
                 # Boolean is also OK in this constructor
@@ -1307,7 +1346,7 @@ class _ValidHDU(_BaseHDU, _Verify):
             self._checksum_valid = self.verify_checksum()
             if not self._checksum_valid:
                 warnings.warn(
-                    'Checksum verification failed for HDU {0}.\n'.format(
+                    'Checksum verification failed for HDU {}.\n'.format(
                         (self.name, self.ver)), AstropyUserWarning)
 
         if 'DATASUM' in self._header:
@@ -1315,7 +1354,7 @@ class _ValidHDU(_BaseHDU, _Verify):
             self._datasum_valid = self.verify_datasum()
             if not self._datasum_valid:
                 warnings.warn(
-                    'Datasum verification failed for HDU {0}.\n'.format(
+                    'Datasum verification failed for HDU {}.\n'.format(
                         (self.name, self.ver)), AstropyUserWarning)
 
     def _get_timestamp(self):

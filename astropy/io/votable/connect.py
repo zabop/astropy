@@ -44,7 +44,7 @@ def is_votable(origin, filepath, fileobj, *args, **kwargs):
         return False
 
 
-def read_table_votable(input, table_id=None, use_names_over_ids=False):
+def read_table_votable(input, table_id=None, use_names_over_ids=False, verify=None):
     """
     Read a Table object from an VO table file
 
@@ -68,9 +68,17 @@ def read_table_votable(input, table_id=None, use_names_over_ids=False):
         are not guaranteed to be unique, this may cause some columns
         to be renamed by appending numbers to the end.  Otherwise
         (default), use the ID attributes as the column names.
+
+    verify : {'ignore', 'warn', 'exception'}, optional
+        When ``'exception'``, raise an error when the file violates the spec,
+        otherwise either issue a warning (``'warn'``) or silently continue
+        (``'ignore'``). Warnings may be controlled using the standard Python
+        mechanisms.  See the `warnings` module in the Python standard library
+        for more information. When not provided, uses the configuration setting
+        ``astropy.io.votable.verify``, which defaults to ``'ignore'``.
     """
     if not isinstance(input, (VOTableFile, VOTable)):
-        input = parse(input, table_id=table_id)
+        input = parse(input, table_id=table_id, verify=verify)
 
     # Parse all table objects
     table_id_mapping = dict()
@@ -85,22 +93,22 @@ def read_table_votable(input, table_id=None, use_names_over_ids=False):
             if table_id is None:
                 raise ValueError(
                     "Multiple tables found: table id should be set via "
-                    "the table_id= argument. The available tables are {0}, "
-                    'or integers less than {1}.'.format(
+                    "the table_id= argument. The available tables are {}, "
+                    'or integers less than {}.'.format(
                         ', '.join(table_id_mapping.keys()), len(tables)))
             elif isinstance(table_id, str):
                 if table_id in table_id_mapping:
                     table = table_id_mapping[table_id]
                 else:
                     raise ValueError(
-                        "No tables with id={0} found".format(table_id))
+                        f"No tables with id={table_id} found")
             elif isinstance(table_id, int):
                 if table_id < len(tables):
                     table = tables[table_id]
                 else:
                     raise IndexError(
-                        "Table index {0} is out of range. "
-                        "{1} tables found".format(
+                        "Table index {} is out of range. "
+                        "{} tables found".format(
                             table_id, len(tables)))
         elif len(tables) == 1:
             table = tables[0]
@@ -143,7 +151,7 @@ def write_table_votable(input, output, table_id=None, overwrite=False,
     unsupported_cols = input.columns.not_isinstance((BaseColumn, Quantity))
     if unsupported_cols:
         unsupported_names = [col.info.name for col in unsupported_cols]
-        raise ValueError('cannot write table with mixin column(s) {0} to VOTable'
+        raise ValueError('cannot write table with mixin column(s) {} to VOTable'
                          .format(unsupported_names))
 
     # Check if output file already exists
@@ -151,7 +159,7 @@ def write_table_votable(input, output, table_id=None, overwrite=False,
         if overwrite:
             os.remove(output)
         else:
-            raise OSError("File exists: {0}".format(output))
+            raise OSError(f"File exists: {output}")
 
     # Create a new VOTable file
     table_file = from_table(input, table_id=table_id)

@@ -48,18 +48,14 @@ def assert_validate_schema(filename, version):
 
 
 def test_parse_single_table():
-    table = parse_single_table(
-        get_pkg_data_filename('data/regression.xml'),
-        pedantic=False)
+    table = parse_single_table(get_pkg_data_filename('data/regression.xml'))
     assert isinstance(table, tree.Table)
     assert len(table.array) == 5
 
 
 def test_parse_single_table2():
-    table2 = parse_single_table(
-        get_pkg_data_filename('data/regression.xml'),
-        table_number=1,
-        pedantic=False)
+    table2 = parse_single_table(get_pkg_data_filename('data/regression.xml'),
+                                table_number=1)
     assert isinstance(table2, tree.Table)
     assert len(table2.array) == 1
     assert len(table2.array.dtype.names) == 28
@@ -67,54 +63,51 @@ def test_parse_single_table2():
 
 @raises(IndexError)
 def test_parse_single_table3():
-    parse_single_table(
-        get_pkg_data_filename('data/regression.xml'),
-        table_number=3, pedantic=False)
+    parse_single_table(get_pkg_data_filename('data/regression.xml'),
+                       table_number=3)
 
 
 def _test_regression(tmpdir, _python_based=False, binary_mode=1):
     # Read the VOTABLE
-    votable = parse(
-        get_pkg_data_filename('data/regression.xml'),
-        pedantic=False,
-        _debug_python_based_parser=_python_based)
+    votable = parse(get_pkg_data_filename('data/regression.xml'),
+                    _debug_python_based_parser=_python_based)
     table = votable.get_first_table()
 
     dtypes = [
-        ((str('string test'), str('string_test')), str('|O8')),
-        ((str('fixed string test'), str('string_test_2')), str('|S10')),
-        (str('unicode_test'), str('|O8')),
-        ((str('unicode test'), str('fixed_unicode_test')), str('<U10')),
-        ((str('string array test'), str('string_array_test')), str('|S4')),
-        (str('unsignedByte'), str('|u1')),
-        (str('short'), str('<i2')),
-        (str('int'), str('<i4')),
-        (str('long'), str('<i8')),
-        (str('double'), str('<f8')),
-        (str('float'), str('<f4')),
-        (str('array'), str('|O8')),
-        (str('bit'), str('|b1')),
-        (str('bitarray'), str('|b1'), (3, 2)),
-        (str('bitvararray'), str('|O8')),
-        (str('bitvararray2'), str('|O8')),
-        (str('floatComplex'), str('<c8')),
-        (str('doubleComplex'), str('<c16')),
-        (str('doubleComplexArray'), str('|O8')),
-        (str('doubleComplexArrayFixed'), str('<c16'), (2,)),
-        (str('boolean'), str('|b1')),
-        (str('booleanArray'), str('|b1'), (4,)),
-        (str('nulls'), str('<i4')),
-        (str('nulls_array'), str('<i4'), (2, 2)),
-        (str('precision1'), str('<f8')),
-        (str('precision2'), str('<f8')),
-        (str('doublearray'), str('|O8')),
-        (str('bitarray2'), str('|b1'), (16,))
+        (('string test', 'string_test'), '|O8'),
+        (('fixed string test', 'string_test_2'), '|S10'),
+        ('unicode_test', '|O8'),
+        (('unicode test', 'fixed_unicode_test'), '<U10'),
+        (('string array test', 'string_array_test'), '|S4'),
+        ('unsignedByte', '|u1'),
+        ('short', '<i2'),
+        ('int', '<i4'),
+        ('long', '<i8'),
+        ('double', '<f8'),
+        ('float', '<f4'),
+        ('array', '|O8'),
+        ('bit', '|b1'),
+        ('bitarray', '|b1', (3, 2)),
+        ('bitvararray', '|O8'),
+        ('bitvararray2', '|O8'),
+        ('floatComplex', '<c8'),
+        ('doubleComplex', '<c16'),
+        ('doubleComplexArray', '|O8'),
+        ('doubleComplexArrayFixed', '<c16', (2,)),
+        ('boolean', '|b1'),
+        ('booleanArray', '|b1', (4,)),
+        ('nulls', '<i4'),
+        ('nulls_array', '<i4', (2, 2)),
+        ('precision1', '<f8'),
+        ('precision2', '<f8'),
+        ('doublearray', '|O8'),
+        ('bitarray2', '|b1', (16,))
         ]
     if sys.byteorder == 'big':
         new_dtypes = []
         for dtype in dtypes:
             dtype = list(dtype)
-            dtype[1] = dtype[1].replace(str('<'), str('>'))
+            dtype[1] = dtype[1].replace('<', '>')
             new_dtypes.append(tuple(dtype))
         dtypes = new_dtypes
     assert table.array.dtype == dtypes
@@ -139,8 +132,7 @@ def _test_regression(tmpdir, _python_based=False, binary_mode=1):
                            votable.version)
     # Also try passing a file handle
     with open(str(tmpdir.join("regression.binary.xml")), "rb") as fd:
-        votable2 = parse(fd, pedantic=False,
-                         _debug_python_based_parser=_python_based)
+        votable2 = parse(fd, _debug_python_based_parser=_python_based)
     votable2.get_first_table().format = 'tabledata'
     votable2.to_xml(str(tmpdir.join("regression.bin.tabledata.xml")),
                     _astropy_version="testing",
@@ -150,7 +142,7 @@ def _test_regression(tmpdir, _python_based=False, binary_mode=1):
 
     with open(
         get_pkg_data_filename(
-            'data/regression.bin.tabledata.truth.{0}.xml'.format(
+            'data/regression.bin.tabledata.truth.{}.xml'.format(
                 votable.version)),
             'rt', encoding='utf-8') as fd:
         truth = fd.readlines()
@@ -179,26 +171,24 @@ def _test_regression(tmpdir, _python_based=False, binary_mode=1):
     assert truth == output
 
 
-@pytest.mark.xfail(str('legacy_float_repr'))
+@pytest.mark.xfail('legacy_float_repr')
 def test_regression(tmpdir):
     _test_regression(tmpdir, False)
 
 
-@pytest.mark.xfail(str('legacy_float_repr'))
+@pytest.mark.xfail('legacy_float_repr')
 def test_regression_python_based_parser(tmpdir):
     _test_regression(tmpdir, True)
 
 
-@pytest.mark.xfail(str('legacy_float_repr'))
+@pytest.mark.xfail('legacy_float_repr')
 def test_regression_binary2(tmpdir):
     _test_regression(tmpdir, False, 2)
 
 
 class TestFixups:
     def setup_class(self):
-        self.table = parse(
-            get_pkg_data_filename('data/regression.xml'),
-            pedantic=False).get_first_table()
+        self.table = parse(get_pkg_data_filename('data/regression.xml')).get_first_table()
         self.array = self.table.array
         self.mask = self.table.array.mask
 
@@ -209,9 +199,7 @@ class TestFixups:
 
 class TestReferences:
     def setup_class(self):
-        self.votable = parse(
-            get_pkg_data_filename('data/regression.xml'),
-            pedantic=False)
+        self.votable = parse(get_pkg_data_filename('data/regression.xml'))
         self.table = self.votable.get_first_table()
         self.array = self.table.array
         self.mask = self.table.array.mask
@@ -251,8 +239,7 @@ class TestReferences:
 def test_select_columns_by_index():
     columns = [0, 5, 13]
     table = parse(
-        get_pkg_data_filename('data/regression.xml'),
-        pedantic=False, columns=columns).get_first_table()
+        get_pkg_data_filename('data/regression.xml'), columns=columns).get_first_table()
     array = table.array
     mask = table.array.mask
     assert array['string_test'][0] == b"String & test"
@@ -265,8 +252,7 @@ def test_select_columns_by_index():
 def test_select_columns_by_name():
     columns = ['string_test', 'unsignedByte', 'bitarray']
     table = parse(
-        get_pkg_data_filename('data/regression.xml'),
-        pedantic=False, columns=columns).get_first_table()
+        get_pkg_data_filename('data/regression.xml'), columns=columns).get_first_table()
     array = table.array
     mask = table.array.mask
     assert array['string_test'][0] == b"String & test"
@@ -277,9 +263,7 @@ def test_select_columns_by_name():
 
 class TestParse:
     def setup_class(self):
-        self.votable = parse(
-            get_pkg_data_filename('data/regression.xml'),
-            pedantic=False)
+        self.votable = parse(get_pkg_data_filename('data/regression.xml'))
         self.table = self.votable.get_first_table()
         self.array = self.table.array
         self.mask = self.table.array.mask
@@ -609,14 +593,12 @@ class TestParse:
 
 class TestThroughTableData(TestParse):
     def setup_class(self):
-        votable = parse(
-            get_pkg_data_filename('data/regression.xml'),
-            pedantic=False)
+        votable = parse(get_pkg_data_filename('data/regression.xml'))
 
         self.xmlout = bio = io.BytesIO()
         votable.to_xml(bio)
         bio.seek(0)
-        self.votable = parse(bio, pedantic=False)
+        self.votable = parse(bio)
         self.table = self.votable.get_first_table()
         self.array = self.table.array
         self.mask = self.table.array.mask
@@ -642,15 +624,13 @@ class TestThroughTableData(TestParse):
 
 class TestThroughBinary(TestParse):
     def setup_class(self):
-        votable = parse(
-            get_pkg_data_filename('data/regression.xml'),
-            pedantic=False)
+        votable = parse(get_pkg_data_filename('data/regression.xml'))
         votable.get_first_table().format = 'binary'
 
         self.xmlout = bio = io.BytesIO()
         votable.to_xml(bio)
         bio.seek(0)
-        self.votable = parse(bio, pedantic=False)
+        self.votable = parse(bio)
 
         self.table = self.votable.get_first_table()
         self.array = self.table.array
@@ -671,9 +651,7 @@ class TestThroughBinary(TestParse):
 
 class TestThroughBinary2(TestParse):
     def setup_class(self):
-        votable = parse(
-            get_pkg_data_filename('data/regression.xml'),
-            pedantic=False)
+        votable = parse(get_pkg_data_filename('data/regression.xml'))
         votable.version = '1.3'
         votable.get_first_table()._config['version_1_3_or_later'] = True
         votable.get_first_table().format = 'binary2'
@@ -681,7 +659,7 @@ class TestThroughBinary2(TestParse):
         self.xmlout = bio = io.BytesIO()
         votable.to_xml(bio)
         bio.seek(0)
-        self.votable = parse(bio, pedantic=False)
+        self.votable = parse(bio)
 
         self.table = self.votable.get_first_table()
         self.array = self.table.array
@@ -729,14 +707,12 @@ def test_open_files():
     for filename in get_pkg_data_filenames('data', pattern='*.xml'):
         if filename.endswith('custom_datatype.xml'):
             continue
-        parse(filename, pedantic=False)
+        parse(filename)
 
 
 @raises(VOTableSpecError)
 def test_too_many_columns():
-    parse(
-        get_pkg_data_filename('data/too_many_columns.xml.gz'),
-        pedantic=False)
+    parse(get_pkg_data_filename('data/too_many_columns.xml.gz'))
 
 
 def test_build_from_scratch(tmpdir):
@@ -774,8 +750,8 @@ def test_build_from_scratch(tmpdir):
     assert_array_equal(
         table.array.mask, np.array([(False, [[False, False], [False, False]]),
                                     (False, [[False, False], [False, False]])],
-                                   dtype=[(str('filename'), str('?')),
-                                          (str('matrix'), str('?'), (2, 2))]))
+                                   dtype=[('filename', '?'),
+                                          ('matrix', '?', (2, 2))]))
 
 
 def test_validate(test_path_object=False):
@@ -837,9 +813,7 @@ def test_validate_path_object():
 
 
 def test_gzip_filehandles(tmpdir):
-    votable = parse(
-        get_pkg_data_filename('data/regression.xml'),
-        pedantic=False)
+    votable = parse(get_pkg_data_filename('data/regression.xml'))
 
     with open(str(tmpdir.join("regression.compressed.xml")), 'wb') as fd:
         votable.to_xml(
@@ -848,9 +822,7 @@ def test_gzip_filehandles(tmpdir):
             _astropy_version="testing")
 
     with open(str(tmpdir.join("regression.compressed.xml")), 'rb') as fd:
-        votable = parse(
-            fd,
-            pedantic=False)
+        votable = parse(fd)
 
 
 def test_from_scratch_example():
@@ -908,17 +880,13 @@ def test_fileobj():
 def test_nonstandard_units():
     from astropy import units as u
 
-    votable = parse(
-        get_pkg_data_filename('data/nonstandard_units.xml'),
-        pedantic=False)
+    votable = parse(get_pkg_data_filename('data/nonstandard_units.xml'))
 
     assert isinstance(
         votable.get_first_table().fields[0].unit, u.UnrecognizedUnit)
 
-    votable = parse(
-        get_pkg_data_filename('data/nonstandard_units.xml'),
-        pedantic=False,
-        unit_format='generic')
+    votable = parse(get_pkg_data_filename('data/nonstandard_units.xml'),
+                    unit_format='generic')
 
     assert not isinstance(
         votable.get_first_table().fields[0].unit, u.UnrecognizedUnit)
@@ -1010,11 +978,8 @@ def test_instantiate_vowarning():
 
 
 def test_custom_datatype():
-    votable = parse(
-        get_pkg_data_filename('data/custom_datatype.xml'),
-        pedantic=False,
-        datatype_mapping={'bar': 'int'}
-    )
+    votable = parse(get_pkg_data_filename('data/custom_datatype.xml'),
+                    datatype_mapping={'bar': 'int'})
 
     table = votable.get_first_table()
     assert table.array.dtype['foo'] == np.int32

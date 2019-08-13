@@ -30,6 +30,7 @@ doc_footer_lsr = """
         Galactic cartesian velocity components.
 """
 
+
 @format_doc(base_doc, components=doc_components_radec, footer=doc_footer_lsr)
 class LSR(BaseRADecFrame):
     r"""A coordinate or frame in the Local Standard of Rest (LSR).
@@ -79,11 +80,12 @@ def lsr_to_icrs(lsr_coord, icrs_frame):
 
 # ------------------------------------------------------------------------------
 
+
 doc_components_gal = """
-    l : `Angle`, optional, must be keyword
+    l : `~astropy.coordinates.Angle`, optional, must be keyword
         The Galactic longitude for this object (``b`` must also be given and
         ``representation`` must be None).
-    b : `Angle`, optional, must be keyword
+    b : `~astropy.coordinates.Angle`, optional, must be keyword
         The Galactic latitude for this object (``l`` must also be given and
         ``representation`` must be None).
     distance : `~astropy.units.Quantity`, optional, must be keyword
@@ -99,6 +101,7 @@ doc_components_gal = """
     radial_velocity : :class:`~astropy.units.Quantity`, optional, must be keyword
         The radial velocity of this object.
 """
+
 
 @format_doc(base_doc, components=doc_components_gal, footer=doc_footer_lsr)
 class GalacticLSR(BaseCoordinateFrame):

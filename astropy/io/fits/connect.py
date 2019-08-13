@@ -14,11 +14,10 @@ from astropy.time import Time
 from astropy.utils.exceptions import AstropyUserWarning
 from astropy.utils.data_info import MixinInfo, serialize_context_as
 from . import HDUList, TableHDU, BinTableHDU, GroupsHDU
-from .column import KEYWORD_NAMES, ASCII_DEFAULT_WIDTHS, _fortran_to_python_format
+from .column import KEYWORD_NAMES, _fortran_to_python_format
 from .convenience import table_to_hdu
 from .hdu.hdulist import fitsopen as fits_open
 from .util import first
-from .verify import VerifyError, VerifyWarning
 
 
 # FITS file signature as per RFC 4047
@@ -168,7 +167,7 @@ def read_table_fits(input, hdu=None, astropy_native=False, memmap=False,
             if hdu is None:
                 warnings.warn("hdu= was not specified but multiple tables"
                               " are present, reading in first available"
-                              " table (hdu={0})".format(first(tables)),
+                              " table (hdu={})".format(first(tables)),
                               AstropyUserWarning)
                 hdu = first(tables)
 
@@ -179,7 +178,7 @@ def read_table_fits(input, hdu=None, astropy_native=False, memmap=False,
             if hdu in tables:
                 table = tables[hdu]
             else:
-                raise ValueError("No table found in hdu={0}".format(hdu))
+                raise ValueError(f"No table found in hdu={hdu}")
 
         elif len(tables) == 1:
             table = tables[first(tables)]
@@ -299,7 +298,7 @@ def _encode_mixins(tbl):
     # description or meta) will be silently dropped, consistent with astropy <=
     # 2.0 behavior.
     try:
-        import yaml
+        import yaml  # noqa
     except ImportError:
         for col in tbl.itercols():
             if (has_info_class(col, MixinInfo) and
@@ -321,7 +320,7 @@ def _encode_mixins(tbl):
     # FITS Time handling does the right thing.
 
     with serialize_context_as('fits'):
-        encode_tbl = serialize._represent_mixins_as_columns(
+        encode_tbl = serialize.represent_mixins_as_columns(
             tbl, exclude_classes=(Time,))
 
     # If the encoded table is unchanged then there were no mixins.  But if there
@@ -392,7 +391,7 @@ def write_table_fits(input, output, overwrite=False):
         if overwrite:
             os.remove(output)
         else:
-            raise OSError("File exists: {0}".format(output))
+            raise OSError(f"File exists: {output}")
 
     table_hdu.writeto(output)
 

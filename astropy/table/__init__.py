@@ -42,11 +42,11 @@ from .column import Column, MaskedColumn, StringTruncateWarning, ColumnInfo
 from .groups import TableGroups, ColumnGroups
 from .table import (Table, QTable, TableColumns, Row, TableFormatter,
                     NdarrayMixin, TableReplaceWarning)
-from .operations import join, setdiff, hstack, vstack, unique, TableMergeError
+from .operations import join, setdiff, hstack, cstack, vstack, unique, TableMergeError
 from .bst import BST, FastBST, FastRBT
 from .sorted_array import SortedArray
 from .soco import SCEngine
-from .serialize import SerializedColumn
+from .serialize import SerializedColumn, represent_mixins_as_columns
 
 # Finally import the formats for the read and write method but delay building
 # the documentation until all are loaded. (#5275)
@@ -60,3 +60,4 @@ with registry.delay_doc_updates(Table):
     from astropy.io.misc import connect
     from astropy.io.votable import connect
     from astropy.io.misc.asdf import connect
+    from astropy.io.misc.pandas import connect

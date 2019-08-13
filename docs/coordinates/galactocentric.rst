@@ -1,12 +1,12 @@
 .. _coordinates-galactocentric:
 
 ********************************************************
-Description of Galactocentric coordinates transformation
+Description of Galactocentric Coordinates Transformation
 ********************************************************
 
 This document describes the mathematics behind the transformation from
 :class:`~astropy.coordinates.ICRS` to `~astropy.coordinates.Galactocentric`
-coordinates. This is described in detail here both due to the mathematical
+coordinates. This is described in detail here on account of the mathematical
 subtleties and the fact that there is no official standard/definition for this
 frame. For examples of how to use this transformation in code, see the
 the *Examples* section of the `~astropy.coordinates.Galactocentric` class
@@ -37,9 +37,9 @@ specified by the ICRS position :math:`(\alpha_{\rm GC}, \delta_{\rm GC})`:
 
    \begin{aligned}
        \boldsymbol{R}_1 &= \begin{bmatrix}
-         \cos\delta_{\rm GC}& 0 & -\sin\delta_{\rm GC}\\
+         \cos\delta_{\rm GC}& 0 & \sin\delta_{\rm GC}\\
          0 & 1 & 0 \\
-         \sin\delta_{\rm GC}& 0 & \cos\delta_{\rm GC}\end{bmatrix}\\
+         -\sin\delta_{\rm GC}& 0 & \cos\delta_{\rm GC}\end{bmatrix}\\
        \boldsymbol{R}_2 &=
        \begin{bmatrix}
          \cos\alpha_{\rm GC}& \sin\alpha_{\rm GC}& 0\\

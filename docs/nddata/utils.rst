@@ -355,10 +355,3 @@ saved to a new FITS file with the updated WCS for the cutout region.
 
 .. literalinclude:: examples/cutout2d_tofits.py
    :language: python
-
-
-Reference/API
-=============
-
-.. automodapi:: astropy.nddata.utils
-    :no-inheritance-diagram:

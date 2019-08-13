@@ -1,6 +1,5 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-
 import sys
 
 import pytest
@@ -128,14 +127,14 @@ class TestRow():
         assert d.colnames == list(np_data.dtype.names)
 
         with pytest.raises(ValueError):
-            np_data = np.array(d, dtype=[(str('c'), 'i8'), (str('d'), 'i8')])
+            np_data = np.array(d, dtype=[('c', 'i8'), ('d', 'i8')])
 
     def test_format_row(self, table_types):
         """Test formatting row"""
         self._setup(table_types)
         table = self.t
         row = table[0]
-        assert repr(row).splitlines() == ['<{0} {1}{2}>'
+        assert repr(row).splitlines() == ['<{} {}{}>'
                                           .format(row.__class__.__name__,
                                                   'index=0',
                                                   ' masked=True' if table.masked else ''),
@@ -147,11 +146,11 @@ class TestRow():
                                          '--- ---',
                                          '  1   4']
 
-        assert row._repr_html_().splitlines() == ['<i>{0} {1}{2}</i>'
+        assert row._repr_html_().splitlines() == ['<i>{} {}{}</i>'
                                                   .format(row.__class__.__name__,
                                                           'index=0',
                                                           ' masked=True' if table.masked else ''),
-                                                  '<table id="table{0}">'.format(id(table)),
+                                                  '<table id="table{}">'.format(id(table)),
                                                   '<thead><tr><th>a</th><th>b</th></tr></thead>',
                                                   '<thead><tr><th>int64</th><th>int64</th></tr></thead>',
                                                   '<tr><td>1</td><td>4</td></tr>',
@@ -201,6 +200,13 @@ class TestRow():
         for ibad in (-5, -4, 3, 4):
             with pytest.raises(IndexError):
                 self.t[ibad]
+
+    def test_create_rows_from_list(self, table_types):
+        """https://github.com/astropy/astropy/issues/8976"""
+        orig_tab = table_types.Table([[1, 2, 3], [4, 5, 6]], names=('a', 'b'))
+        new_tab = type(orig_tab)(rows=[row for row in orig_tab],
+                                 names=orig_tab.dtype.names)
+        assert np.all(orig_tab == new_tab)
 
 
 def test_row_tuple_column_slice():
@@ -252,17 +258,17 @@ def test_row_tuple_column_slice():
     # Bad column name
     with pytest.raises(KeyError) as err:
         t[1]['a', 'not_there']
-    assert "KeyError: 'not_there'" in str(err)
+    assert "'not_there'" in str(err.value)
 
     # Too many values
     with pytest.raises(ValueError) as err:
         t[1]['a', 'b'] = 1 * u.m, 2, 3
-    assert 'right hand side must be a sequence' in str(err)
+    assert 'right hand side must be a sequence' in str(err.value)
 
     # Something without a length
     with pytest.raises(ValueError) as err:
         t[1]['a', 'b'] = 1
-    assert 'right hand side must be a sequence' in str(err)
+    assert 'right hand side must be a sequence' in str(err.value)
 
 
 def test_row_tuple_column_slice_transaction():
@@ -277,8 +283,9 @@ def test_row_tuple_column_slice_transaction():
     # First one succeeds but second fails.
     with pytest.raises(ValueError) as err:
         t[1]['a', 'b'] = (-1, -1 * u.s)  # Bad unit
-    assert "'s' (time) and 'm' (length) are not convertible" in str(err)
+    assert "'s' (time) and 'm' (length) are not convertible" in str(err.value)
     assert t[1] == tc[1]
+
 
 def test_uint_indexing():
     """

@@ -4,12 +4,10 @@
 # STDLIB
 import io
 import re
-import sys
 import gzip
 import base64
 import codecs
 import urllib.request
-import warnings
 
 # THIRD-PARTY
 import numpy as np
@@ -20,8 +18,6 @@ from astropy.io import fits
 from astropy import __version__ as astropy_version
 from astropy.utils.collections import HomogeneousList
 from astropy.utils.xml.writer import XMLWriter
-from astropy.utils.exceptions import AstropyDeprecationWarning
-from astropy.utils.misc import InheritDocstrings
 
 from . import converters
 from .exceptions import (warn_or_raise, vo_warn, vo_raise, vo_reraise,
@@ -113,7 +109,7 @@ def _lookup_by_attr_factory(attr, unique, iterator, element_name, doc):
             if element is before:
                 if getattr(element, attr, None) == ref:
                     vo_raise(
-                        "{} references itself".format(element_name),
+                        f"{element_name} references itself",
                         element._config, element._pos, KeyError)
                 break
             if getattr(element, attr, None) == ref:
@@ -152,7 +148,7 @@ def _lookup_by_id_or_name_factory(iterator, element_name, doc):
             if element is before:
                 if ref in (element.ID, element.name):
                     vo_raise(
-                        "{} references itself".format(element_name),
+                        f"{element_name} references itself",
                         element._config, element._pos, KeyError)
                 break
             if ref in (element.ID, element.name):
@@ -268,10 +264,12 @@ def check_ucd(ucd, config=None, pos=None):
                 has_colon=config.get('version_1_2_or_later', False))
         except ValueError as e:
             # This weird construction is for Python 3 compatibility
-            if config.get('pedantic'):
+            if config.get('verify', 'ignore') == 'exception':
                 vo_raise(W06, (ucd, str(e)), config, pos)
-            else:
+            elif config.get('verify', 'ignore') == 'warn':
                 vo_warn(W06, (ucd, str(e)), config, pos)
+                return False
+            else:
                 return False
     return True
 
@@ -403,7 +401,7 @@ class _DescriptionProperty:
 
 ######################################################################
 # ELEMENT CLASSES
-class Element(metaclass=InheritDocstrings):
+class Element:
     """
     A base class for all classes that represent XML elements in the
     VOTABLE file.
@@ -1170,7 +1168,7 @@ class Field(SimpleElement, _IDProperty, _NameProperty, _XtypeProperty,
         # actually contains character data.  We have to hack the field
         # to store character data, or we can't read it in.  A warning
         # will be raised when this happens.
-        if (not config.get('pedantic') and name == 'cprojection' and
+        if (config.get('verify', 'ignore') != 'exception' and name == 'cprojection' and
             ID == 'cprojection' and ucd == 'VOX:WCS_CoordProjection' and
             datatype == 'double'):
             datatype = 'char'
@@ -1244,7 +1242,7 @@ class Field(SimpleElement, _IDProperty, _NameProperty, _XtypeProperty,
             i = 2
             new_id = field.ID
             while new_id in unique:
-                new_id = field.ID + "_{:d}".format(i)
+                new_id = field.ID + f"_{i:d}"
                 i += 1
             if new_id != field.ID:
                 vo_warn(W32, (field.ID, new_id), field._config, field._pos)
@@ -1261,7 +1259,7 @@ class Field(SimpleElement, _IDProperty, _NameProperty, _XtypeProperty,
                 implicit = False
             if new_name != field.ID:
                 while new_name in unique:
-                    new_name = field.name + " {:d}".format(i)
+                    new_name = field.name + f" {i:d}"
                     i += 1
 
             if (not implicit and
@@ -1530,7 +1528,8 @@ class Field(SimpleElement, _IDProperty, _NameProperty, _XtypeProperty,
         if self.unit is not None:
             # TODO: Use units framework when it's available
             column.unit = self.unit
-        if isinstance(self.converter, converters.FloatingPoint):
+        if (isinstance(self.converter, converters.FloatingPoint) and
+                self.converter.output_format != '{!r:>}'):
             column.format = self.converter.output_format
 
     @classmethod
@@ -1636,7 +1635,9 @@ class CooSys(SimpleElement):
         self._config = config
         self._pos = pos
 
-        if config.get('version_1_2_or_later'):
+        # COOSYS was deprecated in 1.2 but then re-instated in 1.3
+        if (config.get('version_1_2_or_later') and
+                not config.get('version_1_3_or_later')):
             warn_or_raise(W27, W27, (), config, pos)
 
         SimpleElement.__init__(self)
@@ -1785,7 +1786,7 @@ class FieldRef(SimpleElement, _UtypeProperty, _UcdProperty):
             if isinstance(field, Field) and field.ID == self.ref:
                 return field
         vo_raise(
-            "No field named '{}'".format(self.ref),
+            f"No field named '{self.ref}'",
             self._config, self._pos, KeyError)
 
 
@@ -1851,7 +1852,7 @@ class ParamRef(SimpleElement, _UtypeProperty, _UcdProperty):
             if isinstance(param, Param) and param.ID == self.ref:
                 return param
         vo_raise(
-            "No params named '{}'".format(self.ref),
+            f"No params named '{self.ref}'",
             self._config, self._pos, KeyError)
 
 
@@ -1893,7 +1894,7 @@ class Group(Element, _IDProperty, _NameProperty, _UtypeProperty,
         warn_unknown_attrs('GROUP', extra.keys(), config, pos)
 
     def __repr__(self):
-        return '<GROUP>... {0} entries ...</GROUP>'.format(len(self._entries))
+        return '<GROUP>... {} entries ...</GROUP>'.format(len(self._entries))
 
     @property
     def ref(self):
@@ -2134,7 +2135,7 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
                     "binary2 only supported in votable 1.3 or later",
                     self._config, self._pos)
         elif format not in ('tabledata', 'binary'):
-            vo_raise("Invalid format '{}'".format(format),
+            vo_raise(f"Invalid format '{format}'",
                      self._config, self._pos)
         self._format = format
 
@@ -2368,7 +2369,7 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
                     colnumbers = [names.index(x) for x in columns]
                 except ValueError:
                     raise ValueError(
-                        "Columns '{}' not found in fields list".format(columns))
+                        f"Columns '{columns}' not found in fields list")
             else:
                 raise TypeError("Invalid columns list")
 
@@ -2585,7 +2586,7 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
                     fd = codecs.EncodedFile(fd, 'base64')
                 else:
                     vo_raise(
-                        "Unknown encoding type '{}'".format(encoding),
+                        f"Unknown encoding type '{encoding}'",
                         self._config, self._pos, NotImplementedError)
             read = fd.read
 
@@ -2683,7 +2684,7 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
                 fd = codecs.EncodedFile(fd, 'base64')
             else:
                 vo_raise(
-                    "Unknown encoding type '{}'".format(encoding),
+                    f"Unknown encoding type '{encoding}'",
                     self._config, self._pos, NotImplementedError)
 
         hdulist = fits.open(fd)
@@ -2723,7 +2724,7 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
                         element.to_xml(w, **kwargs)
             elif kwargs['version_1_2_or_later']:
                 index = list(self._votable.iter_tables()).index(self)
-                group = Group(self, ID="_g{0}".format(index))
+                group = Group(self, ID=f"_g{index}")
                 group.to_xml(w, **kwargs)
 
             if len(self.array):
@@ -2857,7 +2858,7 @@ class Table(Element, _IDProperty, _NameProperty, _UcdProperty,
                 new_name = name
                 i = 2
                 while new_name in unique_names:
-                    new_name = '{0}{1}'.format(name, i)
+                    new_name = f'{name}{i}'
                     i += 1
                 unique_names.append(new_name)
             names = unique_names
@@ -3249,7 +3250,7 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
 
     def __repr__(self):
         n_tables = len(list(self.iter_tables()))
-        return '<VOTABLE>... {0} tables ...</VOTABLE>'.format(n_tables)
+        return f'<VOTABLE>... {n_tables} tables ...</VOTABLE>'
 
     @property
     def version(self):
@@ -3422,7 +3423,7 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
         if tabledata_format is not None:
             if tabledata_format.lower() not in (
                     'tabledata', 'binary', 'binary2'):
-                raise ValueError("Unknown format type '{0}'".format(format))
+                raise ValueError(f"Unknown format type '{format}'")
 
         kwargs = {
             'version': self.version,
@@ -3457,9 +3458,9 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
                         'xmlns:xsi':
                             "http://www.w3.org/2001/XMLSchema-instance",
                         'xsi:noNamespaceSchemaLocation':
-                            "http://www.ivoa.net/xml/VOTable/v{}".format(version),
+                            f"http://www.ivoa.net/xml/VOTable/v{version}",
                         'xmlns':
-                            "http://www.ivoa.net/xml/VOTable/v{}".format(version)}):
+                            f"http://www.ivoa.net/xml/VOTable/v{version}"}):
                 if self.description is not None:
                     w.element("DESCRIPTION", self.description, wrap=True)
                 element_sets = [self.coordinate_systems, self.params,
@@ -3511,7 +3512,7 @@ class VOTableFile(Element, _IDProperty, _DescriptionProperty):
             if i == idx:
                 return table
         raise IndexError(
-            "No table at index {:d} found in VOTABLE file.".format(idx))
+            f"No table at index {idx:d} found in VOTABLE file.")
 
     def iter_fields_and_params(self):
         """

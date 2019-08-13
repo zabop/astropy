@@ -406,8 +406,8 @@ class Time(ShapedLikeNDArray):
                 self.location = np.broadcast_to(self.location, self.shape,
                                                 subok=True)
             except Exception:
-                raise ValueError('The location with shape {0} cannot be '
-                                 'broadcast against time with shape {1}. '
+                raise ValueError('The location with shape {} cannot be '
+                                 'broadcast against time with shape {}. '
                                  'Typically, either give a single location or '
                                  'one for each time.'
                                  .format(self.location.shape, self.shape))
@@ -441,8 +441,8 @@ class Time(ShapedLikeNDArray):
         if scale is not None:
             if not (isinstance(scale, str) and
                     scale.lower() in self.SCALES):
-                raise ScaleValueError("Scale {0!r} is not in the allowed scales "
-                                      "{1}".format(scale,
+                raise ScaleValueError("Scale {!r} is not in the allowed scales "
+                                      "{}".format(scale,
                                                    sorted(self.SCALES)))
 
         # If either of the input val, val2 are masked arrays then
@@ -476,7 +476,7 @@ class Time(ShapedLikeNDArray):
             formats = [(name, cls) for name, cls in self.FORMATS.items()
                        if issubclass(cls, TimeUnique)]
             err_msg = ('any of the formats where the format keyword is '
-                       'optional {0}'.format([name for name, cls in formats]))
+                       'optional {}'.format([name for name, cls in formats]))
             # AstropyTime is a pseudo-format that isn't in the TIME_FORMATS registry,
             # but try to guess it at the end.
             formats.append(('astropy_time', TimeAstropyTime))
@@ -487,12 +487,12 @@ class Time(ShapedLikeNDArray):
                 raise ValueError("No time format was given, and the input is "
                                  "not unique")
             else:
-                raise ValueError("Format {0!r} is not one of the allowed "
-                                 "formats {1}".format(format,
+                raise ValueError("Format {!r} is not one of the allowed "
+                                 "formats {}".format(format,
                                                       sorted(self.FORMATS)))
         else:
             formats = [(format, self.FORMATS[format])]
-            err_msg = 'the format class {0}'.format(format)
+            err_msg = f'the format class {format}'
 
         for format, FormatClass in formats:
             try:
@@ -502,7 +502,7 @@ class Time(ShapedLikeNDArray):
             except (ValueError, TypeError):
                 pass
         else:
-            raise ValueError('Input values did not match {0}'.format(err_msg))
+            raise ValueError(f'Input values did not match {err_msg}')
 
     @classmethod
     def now(cls):
@@ -609,7 +609,7 @@ class Time(ShapedLikeNDArray):
     def format(self, format):
         """Set time format"""
         if format not in self.FORMATS:
-            raise ValueError('format must be one of {0}'
+            raise ValueError('format must be one of {}'
                              .format(list(self.FORMATS)))
         format_cls = self.FORMATS[format]
 
@@ -628,12 +628,32 @@ class Time(ShapedLikeNDArray):
         self._format = format
 
     def __repr__(self):
-        return ("<{0} object: scale='{1}' format='{2}' value={3}>"
+        return ("<{} object: scale='{}' format='{}' value={}>"
                 .format(self.__class__.__name__, self.scale, self.format,
                         getattr(self, self.format)))
 
     def __str__(self):
         return str(getattr(self, self.format))
+
+    def __hash__(self):
+
+        try:
+            loc = getattr(self, 'location', None)
+            if loc is not None:
+                loc = loc.x.to_value(u.m), loc.y.to_value(u.m), loc.z.to_value(u.m)
+
+            return hash((self.jd1, self.jd2, self.scale, loc))
+
+        except TypeError:
+            if self.ndim != 0:
+                reason = '(must be scalar)'
+            elif self.masked:
+                reason = '(value is masked)'
+            else:
+                raise
+
+            raise TypeError("unhashable type: '{}' {}"
+                            .format(self.__class__.__name__, reason))
 
     def strftime(self, format_spec):
         """
@@ -684,7 +704,7 @@ class Time(ShapedLikeNDArray):
         if scale == self.scale:
             return
         if scale not in self.SCALES:
-            raise ValueError("Scale {0!r} is not in the allowed scales {1}"
+            raise ValueError("Scale {!r} is not in the allowed scales {}"
                              .format(scale, sorted(self.SCALES)))
 
         # Determine the chain of scale transformations to get from the current
@@ -709,7 +729,7 @@ class Time(ShapedLikeNDArray):
             # sys1, sys2 though the property applies for both xform directions.
             args = [jd1, jd2]
             for sys12 in ((sys1, sys2), (sys2, sys1)):
-                dt_method = '_get_delta_{0}_{1}'.format(*sys12)
+                dt_method = '_get_delta_{}_{}'.format(*sys12)
                 try:
                     get_dt = getattr(self, dt_method)
                 except AttributeError:
@@ -1120,7 +1140,7 @@ class Time(ShapedLikeNDArray):
         from astropy.coordinates import Longitude
 
         if kind.lower() not in SIDEREAL_TIME_MODELS.keys():
-            raise ValueError('The kind of sidereal time has to be {0}'.format(
+            raise ValueError('The kind of sidereal time has to be {}'.format(
                 ' or '.join(sorted(SIDEREAL_TIME_MODELS.keys()))))
 
         available_models = SIDEREAL_TIME_MODELS[kind.lower()]
@@ -1130,8 +1150,8 @@ class Time(ShapedLikeNDArray):
         else:
             if model.upper() not in available_models:
                 raise ValueError(
-                    'Model {0} not implemented for {1} sidereal time; '
-                    'available models are {2}'
+                    'Model {} not implemented for {} sidereal time; '
+                    'available models are {}'
                     .format(model, kind, sorted(available_models.keys())))
 
         if longitude is None:
@@ -1311,7 +1331,7 @@ class Time(ShapedLikeNDArray):
         # in the copy.  If the format is unchanged this process is lightweight
         # and does not create any new arrays.
         if new_format not in tm.FORMATS:
-            raise ValueError('format must be one of {0}'
+            raise ValueError('format must be one of {}'
                              .format(list(tm.FORMATS)))
 
         NewFormat = tm.FORMATS[new_format]
@@ -1377,10 +1397,10 @@ class Time(ShapedLikeNDArray):
 
         if keepdims and indices.ndim < self.ndim:
             indices = np.expand_dims(indices, axis)
-        return [(indices if i == axis else np.arange(s).reshape(
+        return tuple([(indices if i == axis else np.arange(s).reshape(
             (1,)*(i if keepdims or i < axis else i-1) + (s,) +
             (1,)*(ndim-i-(1 if keepdims or i > axis else 2))))
-                for i, s in enumerate(self.shape)]
+                for i, s in enumerate(self.shape)])
 
     def argmin(self, axis=None, out=None):
         """Return indices of the minimum values along the given axis.
@@ -1548,8 +1568,8 @@ class Time(ShapedLikeNDArray):
                 raise ScaleValueError("Cannot convert TimeDelta with "
                                       "undefined scale to any defined scale.")
             else:
-                raise ScaleValueError("Cannot convert {0} with scale "
-                                      "'{1}' to scale '{2}'"
+                raise ScaleValueError("Cannot convert {} with scale "
+                                      "'{}' to scale '{}'"
                                       .format(self.__class__.__name__,
                                               self.scale, attr))
 
@@ -1752,7 +1772,7 @@ class Time(ShapedLikeNDArray):
                 else:
                     if self.scale not in TIME_TYPES[other.scale]:
                         raise TypeError("Cannot subtract Time and TimeDelta instances "
-                                        "with scales '{0}' and '{1}'"
+                                        "with scales '{}' and '{}'"
                                         .format(self.scale, other.scale))
                     out._set_scale(other.scale)
             # remove attributes that are invalidated by changing time
@@ -1764,7 +1784,7 @@ class Time(ShapedLikeNDArray):
             # the scales should be compatible (e.g., cannot convert TDB to LOCAL)
             if other.scale not in self.SCALES:
                 raise TypeError("Cannot subtract Time instances "
-                                "with scales '{0}' and '{1}'"
+                                "with scales '{}' and '{}'"
                                 .format(self.scale, other.scale))
             self_time = (self._time if self.scale in TIME_DELTA_SCALES
                          else self.tai._time)
@@ -1813,7 +1833,7 @@ class Time(ShapedLikeNDArray):
             else:
                 if self.scale not in TIME_TYPES[other.scale]:
                     raise TypeError("Cannot add Time and TimeDelta instances "
-                                    "with scales '{0}' and '{1}'"
+                                    "with scales '{}' and '{}'"
                                     .format(self.scale, other.scale))
                 out._set_scale(other.scale)
         # remove attributes that are invalidated by changing time
@@ -1853,8 +1873,8 @@ class Time(ShapedLikeNDArray):
            other.scale is not None and other.scale not in self.SCALES):
             # Other will also not be able to do it, so raise a TypeError
             # immediately, allowing us to explain why it doesn't work.
-            raise TypeError("Cannot compare {0} instances with scales "
-                            "'{1}' and '{2}'".format(self.__class__.__name__,
+            raise TypeError("Cannot compare {} instances with scales "
+                            "'{}' and '{}'".format(self.__class__.__name__,
                                                      self.scale, other.scale))
 
         if self.scale is not None and other.scale is not None:
@@ -1986,7 +2006,7 @@ class TimeDelta(Time):
         if scale == self.scale:
             return
         if scale not in self.SCALES:
-            raise ValueError("Scale {0!r} is not in the allowed scales {1}"
+            raise ValueError("Scale {!r} is not in the allowed scales {}"
                              .format(scale, sorted(self.SCALES)))
 
         # For TimeDelta, there can only be a change in scale factor,
@@ -2017,7 +2037,7 @@ class TimeDelta(Time):
         if(self.scale is not None and self.scale not in other.SCALES or
            other.scale is not None and other.scale not in self.SCALES):
             raise TypeError("Cannot add TimeDelta instances with scales "
-                            "'{0}' and '{1}'".format(self.scale, other.scale))
+                            "'{}' and '{}'".format(self.scale, other.scale))
 
         # adjust the scale of other if the scale of self is set (or no scales)
         if self.scale is not None or other.scale is None:
@@ -2049,7 +2069,7 @@ class TimeDelta(Time):
         if(self.scale is not None and self.scale not in other.SCALES or
            other.scale is not None and other.scale not in self.SCALES):
             raise TypeError("Cannot subtract TimeDelta instances with scales "
-                            "'{0}' and '{1}'".format(self.scale, other.scale))
+                            "'{}' and '{}'".format(self.scale, other.scale))
 
         # adjust the scale of other if the scale of self is set (or no scales)
         if self.scale is not None or other.scale is None:
@@ -2084,24 +2104,31 @@ class TimeDelta(Time):
 
     def __mul__(self, other):
         """Multiplication of `TimeDelta` objects by numbers/arrays."""
-        # check needed since otherwise the self.jd1 * other multiplication
+        # Check needed since otherwise the self.jd1 * other multiplication
         # would enter here again (via __rmul__)
-        if isinstance(other, Time):
+        if isinstance(other, Time) and not isinstance(other, TimeDelta):
             raise OperandTypeError(self, other, '*')
+        elif ((isinstance(other, u.UnitBase) and
+               other == u.dimensionless_unscaled) or
+              (isinstance(other, str) and other == '')):
+            return self.copy()
 
-        try:   # convert to straight float if dimensionless quantity
-            other = other.to(1)
-        except Exception:
-            pass
-
+        # If other is something consistent with a dimensionless quantity
+        # (could just be a float or an array), then we can just multiple in.
         try:
-            jd1, jd2 = day_frac(self.jd1, self.jd2, factor=other)
-            out = TimeDelta(jd1, jd2, format='jd', scale=self.scale)
-        except Exception as err:  # try downgrading self to a quantity
+            other = u.Quantity(other, u.dimensionless_unscaled, copy=False)
+        except Exception:
+            # If not consistent with a dimensionless quantity, try downgrading
+            # self to a quantity and see if things work.
             try:
                 return self.to(u.day) * other
             except Exception:
-                raise err
+                # The various ways we could multiply all failed;
+                # returning NotImplemented to give other a final chance.
+                return NotImplemented
+
+        jd1, jd2 = day_frac(self.jd1, self.jd2, factor=other.value)
+        out = TimeDelta(jd1, jd2, format='jd', scale=self.scale)
 
         if self.format != 'jd':
             out = out.replicate(format=self.format)
@@ -2111,30 +2138,30 @@ class TimeDelta(Time):
         """Multiplication of numbers/arrays with `TimeDelta` objects."""
         return self.__mul__(other)
 
-    def __div__(self, other):
-        """Division of `TimeDelta` objects by numbers/arrays."""
-        return self.__truediv__(other)
-
-    def __rdiv__(self, other):
-        """Division by `TimeDelta` objects of numbers/arrays."""
-        return self.__rtruediv__(other)
-
     def __truediv__(self, other):
         """Division of `TimeDelta` objects by numbers/arrays."""
-        # cannot do __mul__(1./other) as that looses precision
-        try:
-            other = other.to(1)
-        except Exception:
-            pass
+        # Cannot do __mul__(1./other) as that looses precision
+        if ((isinstance(other, u.UnitBase) and
+             other == u.dimensionless_unscaled) or
+                (isinstance(other, str) and other == '')):
+            return self.copy()
 
-        try:   # convert to straight float if dimensionless quantity
-            jd1, jd2 = day_frac(self.jd1, self.jd2, divisor=other)
-            out = TimeDelta(jd1, jd2, format='jd', scale=self.scale)
-        except Exception as err:  # try downgrading self to a quantity
+        # If other is something consistent with a dimensionless quantity
+        # (could just be a float or an array), then we can just divide in.
+        try:
+            other = u.Quantity(other, u.dimensionless_unscaled, copy=False)
+        except Exception:
+            # If not consistent with a dimensionless quantity, try downgrading
+            # self to a quantity and see if things work.
             try:
                 return self.to(u.day) / other
             except Exception:
-                raise err
+                # The various ways we could divide all failed;
+                # returning NotImplemented to give other a final chance.
+                return NotImplemented
+
+        jd1, jd2 = day_frac(self.jd1, self.jd2, divisor=other.value)
+        out = TimeDelta(jd1, jd2, format='jd', scale=self.scale)
 
         if self.format != 'jd':
             out = out.replicate(format=self.format)
@@ -2142,11 +2169,62 @@ class TimeDelta(Time):
 
     def __rtruediv__(self, other):
         """Division by `TimeDelta` objects of numbers/arrays."""
+        # Here, we do not have to worry about returning NotImplemented,
+        # since other has already had a chance to look at us.
         return other / self.to(u.day)
 
-    def to(self, *args, **kwargs):
+    def to(self, unit, equivalencies=[]):
+        """
+        Convert to a quantity in the specified unit.
+
+        Parameters
+        ----------
+        unit : `~astropy.units.UnitBase` instance, str
+            The unit to convert to.
+        equivalencies : list of equivalence pairs, optional
+            A list of equivalence pairs to try if the units are not directly
+            convertible (see :ref:`unit_equivalencies`). If `None`, no
+            equivalencies will be applied at all, not even any set globallyq
+            or within a context.
+
+        Returns
+        -------
+        quantity : `~astropy.units.Quantity`
+            The quantity in the units specified.
+
+        See also
+        --------
+        to_value : get the numerical value in a given unit.
+        """
         return u.Quantity(self._time.jd1 + self._time.jd2,
-                          u.day).to(*args, **kwargs)
+                          u.day).to(unit, equivalencies=equivalencies)
+
+    def to_value(self, unit, equivalencies=[]):
+        """
+        The numerical value in the specified unit.
+
+        Parameters
+        ----------
+        unit : `~astropy.units.UnitBase` instance or str, optional
+            The unit in which the value should be given.
+        equivalencies : list of equivalence pairs, optional
+            A list of equivalence pairs to try if the units are not directly
+            convertible (see :ref:`unit_equivalencies`). If `None`, no
+            equivalencies will be applied at all, not even any set globally
+            or within a context.
+
+        Returns
+        -------
+        value : `~numpy.ndarray` or scalar
+            The value in the units specified.
+
+        See also
+        --------
+        to : Convert to a `~astropy.units.Quantity` instance in a given unit.
+        value : The time value in the current format.
+        """
+        return u.Quantity(self._time.jd1 + self._time.jd2,
+                          u.day).to_value(unit, equivalencies=equivalencies)
 
     def _make_value_equivalent(self, item, value):
         """Coerce setitem value into an equivalent TimeDelta object"""
@@ -2247,9 +2325,9 @@ def _check_for_masked_and_fill(val, val2):
 
 class OperandTypeError(TypeError):
     def __init__(self, left, right, op=None):
-        op_string = '' if op is None else ' for {0}'.format(op)
+        op_string = '' if op is None else f' for {op}'
         super().__init__(
-            "Unsupported operand type(s){0}: "
-            "'{1}' and '{2}'".format(op_string,
+            "Unsupported operand type(s){}: "
+            "'{}' and '{}'".format(op_string,
                                      left.__class__.__name__,
                                      right.__class__.__name__))

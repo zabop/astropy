@@ -29,7 +29,7 @@ def _get_allowed_units(targets):
                 physical_type_id = _unit_physical_mapping[target]
 
             except KeyError:  # Function argument target is invalid
-                raise ValueError("Invalid unit or physical type '{0}'."
+                raise ValueError("Invalid unit or physical type '{}'."
                                  .format(target))
 
             # get unit directly from physical type id
@@ -45,6 +45,9 @@ def _validate_arg_value(param_name, func_name, arg, targets, equivalencies):
     Validates the object passed in to the wrapped function, ``arg``, with target
     unit or physical type, ``target``.
     """
+
+    if len(targets) == 0:
+        return
 
     allowed_units = _get_allowed_units(targets)
 
@@ -62,19 +65,19 @@ def _validate_arg_value(param_name, func_name, arg, targets, equivalencies):
             else:
                 error_msg = "no 'unit' attribute"
 
-            raise TypeError("Argument '{0}' to function '{1}' has {2}. "
+            raise TypeError("Argument '{}' to function '{}' has {}. "
                   "You may want to pass in an astropy Quantity instead."
                      .format(param_name, func_name, error_msg))
 
     else:
         if len(targets) > 1:
-            raise UnitsError("Argument '{0}' to function '{1}' must be in units"
-                             " convertible to one of: {2}."
+            raise UnitsError("Argument '{}' to function '{}' must be in units"
+                             " convertible to one of: {}."
                              .format(param_name, func_name,
                                      [str(targ) for targ in targets]))
         else:
-            raise UnitsError("Argument '{0}' to function '{1}' must be in units"
-                             " convertible to '{2}'."
+            raise UnitsError("Argument '{}' to function '{}' must be in units"
+                             " convertible to '{}'."
                              .format(param_name, func_name,
                                      str(targets[0])))
 
@@ -94,7 +97,8 @@ class QuantityInput:
         the argument is not equivalent to the unit specified to the decorator
         or in the annotation.
         If the argument has no unit attribute, i.e. it is not a Quantity object, a
-        `ValueError` will be raised.
+        `ValueError` will be raised unless the argument is an annotation. This is to
+        allow non Quantity annotations to pass through.
 
         Where an equivalency is specified in the decorator, the function will be
         executed with that equivalency in force.
@@ -181,8 +185,10 @@ class QuantityInput:
                 #   or annotations
                 if param.name in self.decorator_kwargs:
                     targets = self.decorator_kwargs[param.name]
+                    is_annotation = False
                 else:
                     targets = param.annotation
+                    is_annotation = True
 
                 # If the targets is empty, then no target units or physical
                 #   types were specified so we can continue to the next arg
@@ -211,6 +217,12 @@ class QuantityInput:
 
                 else:
                     valid_targets = targets
+
+                # If we're dealing with an annotation, skip all the targets that
+                #    are not strings or subclasses of Unit. This is to allow
+                #    non unit related annotations to pass through
+                if is_annotation:
+                    valid_targets = [t for t in valid_targets if isinstance(t, (str, Unit))]
 
                 # Now we loop over the allowed units/physical types and validate
                 #   the value of the argument:

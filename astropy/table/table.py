@@ -1,4 +1,5 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
+
 from .index import TableIndices, TableLoc, TableILoc, TableLocIndices
 
 import sys
@@ -11,12 +12,14 @@ import numpy as np
 from numpy import ma
 
 from astropy import log
-from astropy.io import registry as io_registry
 from astropy.units import Quantity, QuantityInfo
 from astropy.utils import isiterable, ShapedLikeNDArray
 from astropy.utils.console import color_print
 from astropy.utils.metadata import MetaData
 from astropy.utils.data_info import BaseColumnInfo, MixinInfo, ParentDtypeInfo, DataInfo
+from astropy.utils.decorators import format_doc
+from astropy.utils.exceptions import AstropyDeprecationWarning, NoValue
+from astropy.io.registry import UnifiedReadWriteMethod
 
 from . import groups
 from .pprint import TableFormatter
@@ -24,17 +27,125 @@ from .column import (BaseColumn, Column, MaskedColumn, _auto_names, FalseArray,
                      col_copy)
 from .row import Row
 from .np_utils import fix_column_name, recarray_fromrecords
-from .info import TableInfo, serialize_method_as
+from .info import TableInfo
 from .index import Index, _IndexModeContext, get_index
+from .connect import TableRead, TableWrite
 from . import conf
 
 
-__doctest_skip__ = ['Table.read', 'Table.write',
+_implementation_notes = """
+This string has informal notes concerning Table implementation for developers.
+
+Things to remember:
+
+- Table has customizable attributes ColumnClass, Column, MaskedColumn.
+  Table.Column is normally just column.Column (same w/ MaskedColumn)
+  but in theory they can be different.  Table.ColumnClass is the default
+  class used to create new non-mixin columns, and this is a function of
+  the Table.masked attribute.  Column creation / manipulation in a Table
+  needs to respect these.
+
+- Column objects that get inserted into the Table.columns attribute must
+  have the info.parent_table attribute set correctly.  Beware just dropping
+  an object into the columns dict since an existing column may
+  be part of another Table and have parent_table set to point at that
+  table.  Dropping that column into `columns` of this Table will cause
+  a problem for the old one so the column object needs to be copied (but
+  not necessarily the data).
+
+  Currently replace_column is always making a copy of both object and
+  data if parent_table is set.  This could be improved but requires a
+  generic way to copy a mixin object but not the data.
+
+- Be aware of column objects that have indices set.
+
+- `cls.ColumnClass` is a property that effectively uses the `masked` attribute
+  to choose either `cls.Column` or `cls.MaskedColumn`.
+"""
+
+__doctest_skip__ = ['Table.read', 'Table.write', 'Table._read',
                     'Table.convert_bytestring_to_unicode',
                     'Table.convert_unicode_to_bytestring',
                     ]
 
 __doctest_requires__ = {'*pandas': ['pandas']}
+
+_pprint_docs = """
+    {__doc__}
+
+    Parameters
+    ----------
+    max_lines : int or `None`
+        Maximum number of lines in table output.
+
+    max_width : int or `None`
+        Maximum character width of output.
+
+    show_name : bool
+        Include a header row for column names. Default is True.
+
+    show_unit : bool
+        Include a header row for unit.  Default is to show a row
+        for units only if one or more columns has a defined value
+        for the unit.
+
+    show_dtype : bool
+        Include a header row for column dtypes. Default is True.
+
+    align : str or list or tuple or `None`
+        Left/right alignment of columns. Default is right (None) for all
+        columns. Other allowed values are '>', '<', '^', and '0=' for
+        right, left, centered, and 0-padded, respectively. A list of
+        strings can be provided for alignment of tables with multiple
+        columns.
+    """
+
+_pformat_docs = """
+    {__doc__}
+
+    Parameters
+    ----------
+    max_lines : int or `None`
+        Maximum number of rows to output
+
+    max_width : int or `None`
+        Maximum character width of output
+
+    show_name : bool
+        Include a header row for column names. Default is True.
+
+    show_unit : bool
+        Include a header row for unit.  Default is to show a row
+        for units only if one or more columns has a defined value
+        for the unit.
+
+    show_dtype : bool
+        Include a header row for column dtypes. Default is True.
+
+    html : bool
+        Format the output as an HTML table. Default is False.
+
+    tableid : str or `None`
+        An ID tag for the table; only used if html is set.  Default is
+        "table{id}", where id is the unique integer id of the table object,
+        id(self)
+
+    align : str or list or tuple or `None`
+        Left/right alignment of columns. Default is right (None) for all
+        columns. Other allowed values are '>', '<', '^', and '0=' for
+        right, left, centered, and 0-padded, respectively. A list of
+        strings can be provided for alignment of tables with multiple
+        columns.
+
+    tableclass : str or list of str or `None`
+        CSS classes for the table; only used if html is set.  Default is
+        None.
+
+    Returns
+    -------
+    lines : list
+        Formatted table as a list of strings.
+    """
 
 
 class TableReplaceWarning(UserWarning):
@@ -62,6 +173,9 @@ def descr(col):
 def has_info_class(obj, cls):
     return hasattr(obj, 'info') and isinstance(obj.info, cls)
 
+
+# Note to future maintainers: when transitioning this to dict
+# be sure to change the OrderedDict ref(s) in Row and in __len__().
 
 class TableColumns(OrderedDict):
     """OrderedDict subclass for a set of columns.
@@ -117,14 +231,24 @@ class TableColumns(OrderedDict):
             raise IndexError('Illegal key or index value for {} object'
                              .format(self.__class__.__name__))
 
-    def __setitem__(self, item, value):
-        if item in self:
-            raise ValueError("Cannot replace column '{0}'.  Use Table.replace_column() instead."
+    def __setitem__(self, item, value, validated=False):
+        """
+        Set item in this dict instance, but do not allow directly replacing an
+        existing column unless it is already validated (and thus is certain to
+        not corrupt the table).
+
+        NOTE: it is easily possible to corrupt a table by directly *adding* a new
+        key to the TableColumns attribute of a Table, e.g.
+        ``t.columns['jane'] = 'doe'``.
+
+        """
+        if item in self and not validated:
+            raise ValueError("Cannot replace column '{}'.  Use Table.replace_column() instead."
                              .format(item))
         super().__setitem__(item, value)
 
     def __repr__(self):
-        names = ("'{0}'".format(x) for x in self.keys())
+        names = (f"'{x}'" for x in self.keys())
         return "<{1} names=({0})>".format(",".join(names), self.__class__.__name__)
 
     def _rename_column(self, name, new_name):
@@ -132,7 +256,7 @@ class TableColumns(OrderedDict):
             return
 
         if new_name in self:
-            raise KeyError("Column {0} already exists".format(new_name))
+            raise KeyError(f"Column {new_name} already exists")
 
         mapper = {name: new_name}
         new_names = [mapper.get(name, name) for name in self]
@@ -182,19 +306,34 @@ class TableColumns(OrderedDict):
         return cols
 
 
+class TableReadWrite:
+    def __get__(self, instance, owner_cls):
+        if instance is None:
+            # This is an unbound descriptor on the class
+            info = self
+            info._parent_cls = owner_cls
+        else:
+            info = instance.__dict__.get('info')
+            if info is None:
+                info = instance.__dict__['info'] = self.__class__(bound=True)
+            info._parent = instance
+        return info
+
+
 class Table:
     """A class to represent tables of heterogeneous data.
 
-    `Table` provides a class for heterogeneous tabular data, making use of a
-    `numpy` structured array internally to store the data values.  A key
-    enhancement provided by the `Table` class is the ability to easily modify
-    the structure of the table by adding or removing columns, or adding new
-    rows of data.  In addition table and column metadata are fully supported.
+    `~astropy.table.Table` provides a class for heterogeneous tabular data,
+    making use of a `numpy` structured array internally to store the data
+    values.  A key enhancement provided by the `~astropy.table.Table` class is
+    the ability to easily modify the structure of the table by adding or
+    removing columns, or adding new rows of data.  In addition table and column
+    metadata are fully supported.
 
-    `Table` differs from `~astropy.nddata.NDData` by the assumption that the
-    input data consists of columns of homogeneous data, where each column
-    has a unique identifier and may contain additional metadata such as the
-    data unit, format, and description.
+    `~astropy.table.Table` differs from `~astropy.nddata.NDData` by the
+    assumption that the input data consists of columns of homogeneous data,
+    where each column has a unique identifier and may contain additional
+    metadata such as the data unit, format, and description.
 
     See also: http://docs.astropy.org/en/stable/table/
 
@@ -222,7 +361,7 @@ class Table:
         Additional keyword args when converting table-like object.
     """
 
-    meta = MetaData()
+    meta = MetaData(copy=False)
 
     # Define class attributes for core container objects to allow for subclass
     # customization.
@@ -232,7 +371,11 @@ class Table:
     TableColumns = TableColumns
     TableFormatter = TableFormatter
 
-    def as_array(self, keep_byteorder=False):
+    # Unified I/O read and write methods from .connect
+    read = UnifiedReadWriteMethod(TableRead)
+    write = UnifiedReadWriteMethod(TableWrite)
+
+    def as_array(self, keep_byteorder=False, names=None):
         """
         Return a new copy of the table in the form of a structured np.ndarray or
         np.ma.MaskedArray object (as appropriate).
@@ -244,13 +387,19 @@ class Table:
             order.  However, if this option is `True` this preserves the
             byte order of all columns (if any are non-native).
 
+        names : list, optional:
+            List of column names to include for returned structured array.
+            Default is to include all table columns.
+
         Returns
         -------
         table_array : np.ndarray (unmasked) or np.ma.MaskedArray (masked)
             Copy of table as a numpy structured array
         """
+        masked = self.masked or self.has_masked_columns or self.has_masked_values
+        empty_init = ma.empty if masked else np.empty
         if len(self.columns) == 0:
-            return None
+            return empty_init(0, dtype=None)
 
         sys_byteorder = ('>', '<')[sys.byteorder == 'little']
         native_order = ('=', sys_byteorder)
@@ -258,6 +407,9 @@ class Table:
         dtype = []
 
         cols = self.columns.values()
+
+        if names is not None:
+            cols = [col for col in cols if col.info.name in names]
 
         for col in cols:
             col_descr = descr(col)
@@ -269,7 +421,6 @@ class Table:
 
             dtype.append(col_descr)
 
-        empty_init = ma.empty if self.masked else np.empty
         data = empty_init(len(self), dtype=dtype)
         for col in cols:
             # When assigning from one array into a field of a structured array,
@@ -277,16 +428,19 @@ class Table:
             # byte order where applicable
             data[col.info.name] = col
 
+            # For masked out, masked mixin columns need to set output mask attribute.
+            if masked and has_info_class(col, MixinInfo) and hasattr(col, 'mask'):
+                data[col.info.name].mask = col.mask
+
         return data
 
-    def __init__(self, data=None, masked=None, names=None, dtype=None,
+    def __init__(self, data=None, masked=False, names=None, dtype=None,
                  meta=None, copy=True, rows=None, copy_indices=True,
                  **kwargs):
 
         # Set up a placeholder empty table
         self._set_masked(masked)
         self.columns = self.TableColumns()
-        self.meta = meta
         self.formatter = self.TableFormatter()
         self._copy_indices = True  # copy indices from this Table by default
         self._init_indices = copy_indices  # whether to copy indices in init
@@ -321,8 +475,7 @@ class Table:
             # Data object implements the __astropy_table__ interface method.
             # Calling that method returns an appropriate instance of
             # self.__class__ and respects the `copy` arg.  The returned
-            # Table object should NOT then be copied (though the meta
-            # will be deep-copied anyway).
+            # Table object should NOT then be copied.
             data = data.__astropy_table__(self.__class__, copy, **kwargs)
             copy = False
         elif kwargs:
@@ -363,16 +516,33 @@ class Table:
             n_cols = len(default_names)
 
         elif isinstance(data, Table):
-            init_func = self._init_from_table
-            n_cols = len(data.colnames)
-            default_names = data.colnames
-            # don't copy indices if the input Table is in non-copy mode
+            # If user-input meta is None then use data.meta (if non-trivial)
+            if meta is None and data.meta:
+                # At this point do NOT deepcopy data.meta as this will happen after
+                # table init_func() is called.  But for table input the table meta
+                # gets a key copy here if copy=False because later a direct object ref
+                # is used.
+                meta = data.meta if copy else data.meta.copy()
+
+            # Handle indices on input table. Copy primary key and don't copy indices
+            # if the input Table is in non-copy mode.
+            self.primary_key = data.primary_key
             self._init_indices = self._init_indices and data._copy_indices
+
+            # Extract default names, n_cols, and then overwrite ``data`` to be the
+            # table columns so we can use _init_from_list.
+            default_names = data.colnames
+            n_cols = len(default_names)
+            data = list(data.columns.values())
+
+            init_func = self._init_from_list
 
         elif data is None:
             if names is None:
                 if dtype is None:
-                    return  # Empty table
+                    if meta is not None:
+                        self.meta = deepcopy(meta) if copy else meta
+                    return
                 try:
                     # No data nor names but dtype is available.  This must be
                     # valid to initialize a structured array.
@@ -388,7 +558,7 @@ class Table:
             data = [[]] * n_cols
 
         else:
-            raise ValueError('Data type {0} not allowed to init Table'
+            raise ValueError('Data type {} not allowed to init Table'
                              .format(type(data)))
 
         # Set up defaults if names and/or dtype are not specified.
@@ -410,9 +580,14 @@ class Table:
         # Finally do the real initialization
         init_func(data, names, dtype, n_cols, copy)
 
+        # Set table meta.  If copy=True then deepcopy meta otherwise use the
+        # user-supplied meta directly.
+        if meta is not None:
+            self.meta = deepcopy(meta) if copy else meta
+
         # Whatever happens above, the masked property should be set to a boolean
-        if type(self.masked) is not bool:
-            raise TypeError("masked property has not been set to True or False")
+        if self.masked not in (None, True, False):
+            raise TypeError("masked property must be None, True or False")
 
     def __getstate__(self):
         columns = OrderedDict((key, col if isinstance(col, BaseColumn) else col_copy(col))
@@ -426,8 +601,9 @@ class Table:
     @property
     def mask(self):
         # Dynamic view of available masks
-        if self.masked:
-            mask_table = Table([col.mask for col in self.columns.values()],
+        if self.masked or self.has_masked_columns or self.has_masked_values:
+            mask_table = Table([getattr(col, 'mask', FalseArray(col.shape))
+                                for col in self.itercols()],
                                names=self.colnames, copy=False)
 
             # Set hidden attribute to force inplace setitem so that code like
@@ -451,7 +627,7 @@ class Table:
         return self.as_array().mask
 
     def filled(self, fill_value=None):
-        """Return a copy of self, with masked values filled.
+        """Return copy of self, with masked values filled.
 
         If input ``fill_value`` supplied then that value is used for all
         masked entries in the table.  Otherwise the individual
@@ -468,11 +644,15 @@ class Table:
         filled_table : Table
             New table with masked values filled
         """
-        if self.masked:
-            data = [col.filled(fill_value) for col in self.columns.values()]
+        if self.masked or self.has_masked_columns or self.has_masked_values:
+            # Get new columns with masked values filled, then create Table with those
+            # new cols (copy=False) but deepcopy the meta.
+            data = [col.filled(fill_value) if hasattr(col, 'filled') else col
+                    for col in self.itercols()]
+            return self.__class__(data, meta=deepcopy(self.meta), copy=False)
         else:
-            data = self
-        return self.__class__(data, meta=deepcopy(self.meta))
+            # Return copy of the original object.
+            return self.copy()
 
     @property
     def indices(self):
@@ -536,8 +716,8 @@ class Table:
         # make sure all columns support indexing
         for col in columns:
             if not getattr(col.info, '_supports_indexing', False):
-                raise ValueError('Cannot create an index on column "{0}", of '
-                                 'type "{1}"'.format(col.info.name, type(col)))
+                raise ValueError('Cannot create an index on column "{}", of '
+                                 'type "{}"'.format(col.info.name, type(col)))
 
         index = Index(columns, engine=engine, unique=unique)
         if not self.indices:
@@ -605,7 +785,8 @@ class Table:
         # array([(0, 0), (0, 0)],
         #       dtype=[('a', '<i8'), ('b', '<i8')])
 
-        return self.as_array().data if self.masked else self.as_array()
+        out = self.as_array()
+        return out.data if isinstance(out, np.ma.MaskedArray) else out
 
     def _check_names_dtype(self, names, dtype, n_cols):
         """Make sure that names and dtype are both iterable and have
@@ -613,27 +794,26 @@ class Table:
         """
         for inp_list, inp_str in ((dtype, 'dtype'), (names, 'names')):
             if not isiterable(inp_list):
-                raise ValueError('{0} must be a list or None'.format(inp_str))
+                raise ValueError(f'{inp_str} must be a list or None')
 
         if len(names) != n_cols or len(dtype) != n_cols:
             raise ValueError(
                 'Arguments "names" and "dtype" must match number of columns'
                 .format(inp_str))
 
-    def _set_masked_from_cols(self, cols):
-        if self.masked is None:
-            if any(isinstance(col, (MaskedColumn, ma.MaskedArray)) for col in cols):
-                self._set_masked(True)
-            else:
-                self._set_masked(False)
-        elif not self.masked:
-            if any(np.any(col.mask) for col in cols if isinstance(col, (MaskedColumn, ma.MaskedArray))):
-                self._set_masked(True)
-
     def _init_from_list_of_dicts(self, data, names, dtype, n_cols, copy):
         names_from_data = set()
         for row in data:
             names_from_data.update(row)
+
+        if (isinstance(data[0], OrderedDict) and
+                set(data[0].keys()) == names_from_data):
+            names_from_data = list(data[0].keys())
+        else:
+            names_from_data = sorted(names_from_data)
+
+        # Note: if set(data[0].keys()) != names_from_data, this will give an
+        # exception later, so NO need to catch here.
 
         cols = {}
         for name in names_from_data:
@@ -642,54 +822,145 @@ class Table:
                 try:
                     cols[name].append(row[name])
                 except KeyError:
-                    raise ValueError('Row {0} has no value for column {1}'.format(i, name))
+                    raise ValueError(f'Row {i} has no value for column {name}')
+
         if all(name is None for name in names):
-            names = sorted(names_from_data)
+            names = names_from_data
+
         self._init_from_dict(cols, names, dtype, n_cols, copy)
         return
 
     def _init_from_list(self, data, names, dtype, n_cols, copy):
-        """Initialize table from a list of columns.  A column can be a
+        """Initialize table from a list of column data.  A column can be a
         Column object, np.ndarray, mixin, or any other iterable object.
         """
         if data and all(isinstance(row, dict) for row in data):
             self._init_from_list_of_dicts(data, names, dtype, n_cols, copy)
             return
 
-        # Set self.masked appropriately, then get class to create column instances.
-        self._set_masked_from_cols(data)
-
         cols = []
-        def_names = _auto_names(n_cols)
+        default_names = _auto_names(n_cols)
 
-        for col, name, def_name, dtype in zip(data, names, def_names, dtype):
-            # Structured ndarray gets viewed as a mixin unless already a valid
-            # mixin class
-            if (isinstance(col, np.ndarray) and len(col.dtype) > 1 and
-                    not self._add_as_mixin_column(col)):
-                col = col.view(NdarrayMixin)
-
-            if isinstance(col, (Column, MaskedColumn)):
-                col = self.ColumnClass(name=(name or col.info.name or def_name),
-                                       data=col, dtype=dtype,
-                                       copy=copy, copy_indices=self._init_indices)
-            elif self._add_as_mixin_column(col):
-                # Copy the mixin column attributes if they exist since the copy below
-                # may not get this attribute.
-                if copy:
-                    col = col_copy(col, copy_indices=self._init_indices)
-
-                col.info.name = name or col.info.name or def_name
-            elif isinstance(col, np.ndarray) or isiterable(col):
-                col = self.ColumnClass(name=(name or def_name), data=col, dtype=dtype,
-                                       copy=copy, copy_indices=self._init_indices)
-            else:
-                raise ValueError('Elements in list initialization must be '
-                                 'either Column or list-like')
+        for col, name, default_name, dtype in zip(data, names, default_names, dtype):
+            col = self._convert_data_to_col(col, copy, default_name, dtype, name)
 
             cols.append(col)
 
         self._init_from_cols(cols)
+
+    def _convert_data_to_col(self, data, copy=True, default_name=None, dtype=None, name=None):
+        """
+        Convert any allowed sequence data ``col`` to a column object that can be used
+        directly in the self.columns dict.  This could be a Column, MaskedColumn,
+        or mixin column.
+
+        The final column name is determined by::
+
+            name or data.info.name or def_name
+
+        If ``data`` has no ``info`` then ``name = name or def_name``.
+
+        The behavior of ``copy`` for Column objects is:
+        - copy=True: new class instance with a copy of data and deep copy of meta
+        - copy=False: new class instance with same data and a key-only copy of meta
+
+        For mixin columns:
+        - copy=True: new class instance with copy of data and deep copy of meta
+        - copy=False: original instance (no copy at all)
+
+        Parameters
+        ----------
+        data : object (column-like sequence)
+            Input column data
+        copy : bool
+            Make a copy
+        default_name : str
+            Default name
+        dtype : np.dtype or None
+            Data dtype
+        name : str or None
+            Column name
+
+        Returns
+        -------
+        col : Column, MaskedColumn, mixin-column type
+            Object that can be used as a column in self
+        """
+        is_mixin = self._is_mixin_for_table(data)
+        masked_col_cls = (self.ColumnClass
+                          if issubclass(self.ColumnClass, self.MaskedColumn)
+                          else self.MaskedColumn)
+
+        # Structured ndarray gets viewed as a mixin unless already a valid
+        # mixin class
+        if isinstance(data, np.ndarray) and len(data.dtype) > 1 and not is_mixin:
+            data = data.view(NdarrayMixin)
+
+        # Get the final column name using precedence.  Some objects may not
+        # have an info attribute.
+        if not name:
+            if hasattr(data, 'info'):
+                name = data.info.name or default_name
+            else:
+                name = default_name
+
+        if isinstance(data, Column):
+            # If self.ColumnClass is a subclass of col, then "upgrade" to ColumnClass,
+            # otherwise just use the original class.  The most common case is a
+            # table with masked=True and ColumnClass=MaskedColumn.  Then a Column
+            # gets upgraded to MaskedColumn, but the converse (pre-4.0) behavior
+            # of downgrading from MaskedColumn to Column (for non-masked table)
+            # does not happen.
+            col_cls = self._get_col_cls_for_table(data)
+
+        elif self._is_mixin_for_table(data):
+            # Copy the mixin column attributes if they exist since the copy below
+            # may not get this attribute.
+            col = col_copy(data, copy_indices=self._init_indices) if copy else data
+            col.info.name = name
+            return col
+
+        elif isinstance(data, np.ma.MaskedArray):
+            # Require that col_cls be a subclass of MaskedColumn, remembering
+            # that ColumnClass could be a user-defined subclass (though more-likely
+            # could be MaskedColumn).
+            col_cls = masked_col_cls
+
+        elif not hasattr(data, 'dtype'):
+            # If value doesn't have a dtype then convert to a masked numpy array.
+            # Then check if there were any masked elements.  This logic is handling
+            # normal lists like [1, 2] but also odd-ball cases like a list of masked
+            # arrays (see #8977).  Use np.ma.array() to do the heavy lifting.
+            np_data = np.ma.array(data, dtype=dtype)
+
+            if np_data.ndim > 0 and len(np_data) == 0:
+                # Implies input was an empty list (e.g. initializing an empty table
+                # with pre-declared names and dtypes but no data).  Here we need to
+                # fall through to initializing with the original data=[].
+                col_cls = self.ColumnClass
+            else:
+                if np_data.mask is np.ma.nomask:
+                    data = np_data.data
+                    col_cls = self.ColumnClass
+                else:
+                    data = np_data
+                    col_cls = masked_col_cls
+                copy = False
+
+        else:
+            # `data` is none of the above, so just go for it and try init'ing Column
+            col_cls = self.ColumnClass
+
+        try:
+            col = col_cls(name=name, data=data, dtype=dtype,
+                          copy=copy, copy_indices=self._init_indices)
+        except Exception:
+            # Broad exception class since we don't know what might go wrong
+            raise ValueError('unable to convert data to Column for Table')
+
+        col = self._convert_col_for_table(col)
+
+        return col
 
     def _init_from_ndarray(self, data, names, dtype, n_cols, copy):
         """Initialize table from an ndarray structured array"""
@@ -701,63 +972,60 @@ class Table:
         cols = ([data[name] for name in data_names] if struct else
                 [data[:, i] for i in range(n_cols)])
 
-        # Set self.masked appropriately, then get class to create column instances.
-        self._set_masked_from_cols(cols)
-
-        if copy:
-            self._init_from_list(cols, names, dtype, n_cols, copy)
-        else:
-            dtype = [(name, col.dtype, col.shape[1:]) for name, col in zip(names, cols)]
-            newdata = data.view(dtype).ravel()
-            columns = self.TableColumns()
-
-            for name in names:
-                columns[name] = self.ColumnClass(name=name, data=newdata[name])
-                columns[name].info.parent_table = self
-            self.columns = columns
+        self._init_from_list(cols, names, dtype, n_cols, copy)
 
     def _init_from_dict(self, data, names, dtype, n_cols, copy):
         """Initialize table from a dictionary of columns"""
 
-        # TODO: is this restriction still needed with no ndarray?
-        if not copy:
-            raise ValueError('Cannot use copy=False with a dict data input')
-
         data_list = [data[name] for name in names]
         self._init_from_list(data_list, names, dtype, n_cols, copy)
 
-    def _init_from_table(self, data, names, dtype, n_cols, copy):
-        """Initialize table from an existing Table object """
+    def _get_col_cls_for_table(self, col):
+        """Get the correct column class to use for upgrading any Column-like object.
 
-        table = data  # data is really a Table, rename for clarity
-        self.meta.clear()
-        self.meta.update(deepcopy(table.meta))
-        self.primary_key = table.primary_key
-        cols = list(table.columns.values())
+        For a masked table, ensure any Column-like object is a subclass
+        of the table MaskedColumn.
 
-        self._init_from_list(cols, names, dtype, n_cols, copy)
+        For unmasked table, ensure any MaskedColumn-like object is a subclass
+        of the table MaskedColumn.  If not a MaskedColumn, then ensure that any
+        Column-like object is a subclass of the table Column.
+        """
+
+        col_cls = col.__class__
+
+        if self.masked:
+            if isinstance(col, Column) and not isinstance(col, self.MaskedColumn):
+                col_cls = self.MaskedColumn
+        else:
+            if isinstance(col, MaskedColumn):
+                if not isinstance(col, self.MaskedColumn):
+                    col_cls = self.MaskedColumn
+            elif isinstance(col, Column) and not isinstance(col, self.Column):
+                col_cls = self.Column
+
+        return col_cls
 
     def _convert_col_for_table(self, col):
         """
-        Make sure that all Column objects have correct class for this type of
+        Make sure that all Column objects have correct base class for this type of
         Table.  For a base Table this most commonly means setting to
         MaskedColumn if the table is masked.  Table subclasses like QTable
         override this method.
         """
-        if col.__class__ is not self.ColumnClass and isinstance(col, Column):
-            col = self.ColumnClass(col)  # copy attributes and reference data
+        if isinstance(col, Column) and not isinstance(col, self.ColumnClass):
+            col_cls = self._get_col_cls_for_table(col)
+            if col_cls is not col.__class__:
+                col = col_cls(col, copy=False)
+
         return col
 
     def _init_from_cols(self, cols):
         """Initialize table from a list of Column or mixin objects"""
 
         lengths = set(len(col) for col in cols)
-        if len(lengths) != 1:
-            raise ValueError('Inconsistent data column lengths: {0}'
+        if len(lengths) > 1:
+            raise ValueError('Inconsistent data column lengths: {}'
                              .format(lengths))
-
-        # Set the table masking
-        self._set_masked_from_cols(cols)
 
         # Make sure that all Column-based objects have correct class.  For
         # plain Table this is self.ColumnClass, but for instance QTable will
@@ -782,42 +1050,71 @@ class Table:
         """Create a new table as a referenced slice from self."""
 
         table = self.__class__(masked=self.masked)
-        table.meta.clear()
-        table.meta.update(deepcopy(self.meta))
+        if self.meta:
+            table.meta = self.meta.copy()  # Shallow copy for slice
         table.primary_key = self.primary_key
-        cols = self.columns.values()
 
         newcols = []
-        for col in cols:
-            col.info._copy_indices = self._copy_indices
+        for col in self.columns.values():
             newcol = col[slice_]
-            if col.info.indices:
-                newcol = col.info.slice_indices(newcol, slice_, len(col))
-            newcols.append(newcol)
-            col.info._copy_indices = True
 
-        self._make_table_from_cols(table, newcols)
+            # Note in line below, use direct attribute access to col.indices for Column
+            # instances instead of the generic col.info.indices.  This saves about 4 usec
+            # per column.
+            if (col if isinstance(col, Column) else col.info).indices:
+                # TODO : as far as I can tell the only purpose of setting _copy_indices
+                # here is to communicate that to the initial test in `slice_indices`.
+                # Why isn't that just sent as an arg to the function?
+                col.info._copy_indices = self._copy_indices
+                newcol = col.info.slice_indices(newcol, slice_, len(col))
+
+                # Don't understand why this is forcing a value on the original column.
+                # Normally col.info does not even have a _copy_indices attribute.  Tests
+                # still pass if this line is deleted.  (Each col.info attribute access
+                # is expensive).
+                col.info._copy_indices = True
+
+            newcols.append(newcol)
+
+        self._make_table_from_cols(table, newcols, verify=False, names=self.columns.keys())
         return table
 
     @staticmethod
-    def _make_table_from_cols(table, cols):
+    def _make_table_from_cols(table, cols, verify=True, names=None):
         """
         Make ``table`` in-place so that it represents the given list of ``cols``.
         """
-        colnames = set(col.info.name for col in cols)
-        if None in colnames:
-            raise TypeError('Cannot have None for column name')
-        if len(colnames) != len(cols):
-            raise ValueError('Duplicate column names')
+        if names is None:
+            names = [col.info.name for col in cols]
 
-        columns = table.TableColumns((col.info.name, col) for col in cols)
+        # Note: we do not test for len(names) == len(cols) if names is not None.  In that
+        # case the function is being called by from "trusted" source (e.g. right above here)
+        # that is assumed to provide valid inputs.  In that case verify=False.
+
+        if verify:
+            if None in names:
+                raise TypeError('Cannot have None for column name')
+            if len(set(names)) != len(names):
+                raise ValueError('Duplicate column names')
+
+        table.columns = table.TableColumns((name, col) for name, col in zip(names, cols))
 
         for col in cols:
-            col.info.parent_table = table
-            if table.masked and not hasattr(col, 'mask'):
-                col.mask = FalseArray(col.shape)
+            table._set_col_parent_table_and_mask(col)
 
-        table.columns = columns
+    def _set_col_parent_table_and_mask(self, col):
+        """
+        Set ``col.parent_table = self`` and force ``col`` to have ``mask``
+        attribute if the table is masked and ``col.mask`` does not exist.
+        """
+        # For Column instances it is much faster to do direct attribute access
+        # instead of going through .info
+        col_info = col if isinstance(col, Column) else col.info
+        col_info.parent_table = self
+
+        # Legacy behavior for masked table
+        if self.masked and not hasattr(col, 'mask'):
+            col.mask = FalseArray(col.shape)
 
     def itercols(self):
         """
@@ -851,14 +1148,14 @@ class Table:
             descr_vals = [self.__class__.__name__]
             if self.masked:
                 descr_vals.append('masked=True')
-            descr_vals.append('length={0}'.format(len(self)))
+            descr_vals.append('length={}'.format(len(self)))
 
         descr = ' '.join(descr_vals)
         if html:
             from astropy.utils.xml.writer import xml_escape
-            descr = '<i>{0}</i>\n'.format(xml_escape(descr))
+            descr = '<i>{}</i>\n'.format(xml_escape(descr))
         else:
-            descr = '<{0}>\n'.format(descr)
+            descr = f'<{descr}>\n'
 
         if tableid is None:
             tableid = 'table{id}'.format(id=id(self))
@@ -893,7 +1190,30 @@ class Table:
         """
         return any(has_info_class(col, MixinInfo) for col in self.columns.values())
 
-    def _add_as_mixin_column(self, col):
+    @property
+    def has_masked_columns(self):
+        """True if table has any ``MaskedColumn`` columns.
+
+        This does not check for mixin columns that may have masked values, use the
+        ``has_masked_values`` property in that case.
+
+        """
+        return any(isinstance(col, MaskedColumn) for col in self.itercols())
+
+    @property
+    def has_masked_values(self):
+        """True if column in the table has values which are masked.
+
+        This may be relatively slow for large tables as it requires checking the mask
+        values of each column.
+        """
+        for col in self.itercols():
+            if hasattr(col, 'mask') and np.any(col.mask):
+                return True
+        else:
+            return False
+
+    def _is_mixin_for_table(self, col):
         """
         Determine if ``col`` should be added to the table directly as
         a mixin column.
@@ -905,6 +1225,7 @@ class Table:
         # unit set).
         return has_info_class(col, MixinInfo) and not has_info_class(col, QuantityInfo)
 
+    @format_doc(_pprint_docs)
     def pprint(self, max_lines=None, max_width=None, show_name=True,
                show_unit=None, show_dtype=False, align=None):
         """Print a formatted string representation of the table.
@@ -919,37 +1240,12 @@ class Table:
         The same applies for max_width except the configuration item is
         ``astropy.conf.max_width``.
 
-        Parameters
-        ----------
-        max_lines : int
-            Maximum number of lines in table output.
-
-        max_width : int or `None`
-            Maximum character width of output.
-
-        show_name : bool
-            Include a header row for column names. Default is True.
-
-        show_unit : bool
-            Include a header row for unit.  Default is to show a row
-            for units only if one or more columns has a defined value
-            for the unit.
-
-        show_dtype : bool
-            Include a header row for column dtypes. Default is True.
-
-        align : str or list or tuple or `None`
-            Left/right alignment of columns. Default is right (None) for all
-            columns. Other allowed values are '>', '<', '^', and '0=' for
-            right, left, centered, and 0-padded, respectively. A list of
-            strings can be provided for alignment of tables with multiple
-            columns.
         """
         lines, outs = self.formatter._pformat_table(self, max_lines, max_width,
                                                     show_name=show_name, show_unit=show_unit,
                                                     show_dtype=show_dtype, align=align)
         if outs['show_length']:
-            lines.append('Length = {0} rows'.format(len(self)))
+            lines.append('Length = {} rows'.format(len(self)))
 
         n_header = outs['n_header']
 
@@ -958,6 +1254,20 @@ class Table:
                 color_print(line, 'red')
             else:
                 print(line)
+
+    @format_doc(_pprint_docs)
+    def pprint_all(self, max_lines=-1, max_width=-1, show_name=True,
+               show_unit=None, show_dtype=False, align=None):
+        """Print a formatted string representation of the entire table.
+
+        This method is the same as `astropy.table.Table.pprint` except that
+        the default ``max_lines`` and ``max_width`` are both -1 so that by
+        default the entire table is printed instead of restricting to the size
+        of the screen terminal.
+
+        """
+        return self.pprint(max_lines, max_width, show_name,
+               show_unit, show_dtype, align)
 
     def _make_index_row_display_table(self, index_row_name):
         if index_row_name not in self.columns:
@@ -1012,7 +1322,7 @@ class Table:
         from IPython.display import HTML
 
         if tableid is None:
-            tableid = 'table{0}-{1}'.format(id(self),
+            tableid = 'table{}-{}'.format(id(self),
                                             np.random.randint(1, 1e6))
 
         jsv = JSViewer(display_length=display_length)
@@ -1107,10 +1417,11 @@ class Table:
         try:
             br = webbrowser.get(None if browser == 'default' else browser)
         except webbrowser.Error:
-            log.error("Browser '{}' not found.".format(browser))
+            log.error(f"Browser '{browser}' not found.")
         else:
             br.open(urljoin('file:', pathname2url(path)))
 
+    @format_doc(_pformat_docs, id="{id}")
     def pformat(self, max_lines=None, max_width=None, show_name=True,
                 show_unit=None, show_dtype=False, html=False, tableid=None,
                 align=None, tableclass=None):
@@ -1127,49 +1438,6 @@ class Table:
         The same applies for ``max_width`` except the configuration item  is
         ``astropy.conf.max_width``.
 
-        Parameters
-        ----------
-        max_lines : int or `None`
-            Maximum number of rows to output
-
-        max_width : int or `None`
-            Maximum character width of output
-
-        show_name : bool
-            Include a header row for column names. Default is True.
-
-        show_unit : bool
-            Include a header row for unit.  Default is to show a row
-            for units only if one or more columns has a defined value
-            for the unit.
-
-        show_dtype : bool
-            Include a header row for column dtypes. Default is True.
-
-        html : bool
-            Format the output as an HTML table. Default is False.
-
-        tableid : str or `None`
-            An ID tag for the table; only used if html is set.  Default is
-            "table{id}", where id is the unique integer id of the table object,
-            id(self)
-
-        align : str or list or tuple or `None`
-            Left/right alignment of columns. Default is right (None) for all
-            columns. Other allowed values are '>', '<', '^', and '0=' for
-            right, left, centered, and 0-padded, respectively. A list of
-            strings can be provided for alignment of tables with multiple
-            columns.
-
-        tableclass : str or list of str or `None`
-            CSS classes for the table; only used if html is set.  Default is
-            None.
-
-        Returns
-        -------
-        lines : list
-            Formatted table as a list of strings.
-
         """
 
         lines, outs = self.formatter._pformat_table(
@@ -1178,9 +1446,32 @@ class Table:
             tableid=tableid, tableclass=tableclass, align=align)
 
         if outs['show_length']:
-            lines.append('Length = {0} rows'.format(len(self)))
+            lines.append('Length = {} rows'.format(len(self)))
 
         return lines
+
+    @format_doc(_pformat_docs, id="{id}")
+    def pformat_all(self, max_lines=-1, max_width=-1, show_name=True,
+                show_unit=None, show_dtype=False, html=False, tableid=None,
+                align=None, tableclass=None):
+        """Return a list of lines for the formatted string representation of
+        the entire table.
+
+        If no value of ``max_lines`` is supplied then the height of the
+        screen terminal is used to set ``max_lines``.  If the terminal
+        height cannot be determined then the default is taken from the
+        configuration item ``astropy.conf.max_lines``.  If a negative
+        value of ``max_lines`` is supplied then there is no line limit
+        applied.
+
+        The same applies for ``max_width`` except the configuration item  is
+        ``astropy.conf.max_width``.
+
+        """
+
+        return self.pformat(max_lines, max_width, show_name,
+                show_unit, show_dtype, html, tableid,
+                align, tableclass)
 
     def more(self, max_lines=None, max_width=None, show_name=True,
              show_unit=None, show_dtype=False):
@@ -1229,10 +1520,10 @@ class Table:
             return self.Row(self, item.item())
         elif self._is_list_or_tuple_of_str(item):
             out = self.__class__([self[x] for x in item],
-                                 meta=deepcopy(self.meta),
                                  copy_indices=self._copy_indices)
             out._groups = groups.TableGroups(out, indices=self.groups._indices,
                                              keys=self.groups._keys)
+            out.meta = self.meta.copy()  # Shallow copy for meta
             return out
         elif ((isinstance(item, np.ndarray) and item.size == 0) or
               (isinstance(item, (tuple, list)) and not item)):
@@ -1248,61 +1539,14 @@ class Table:
             # For all, a new table is constructed with slice of all columns
             return self._new_from_slice(item)
         else:
-            raise ValueError('Illegal type {0} for table item access'
+            raise ValueError('Illegal type {} for table item access'
                              .format(type(item)))
 
     def __setitem__(self, item, value):
         # If the item is a string then it must be the name of a column.
         # If that column doesn't already exist then create it now.
         if isinstance(item, str) and item not in self.colnames:
-            NewColumn = self.MaskedColumn if self.masked else self.Column
-            # If value doesn't have a dtype and won't be added as a mixin then
-            # convert to a numpy array.
-            if not hasattr(value, 'dtype') and not self._add_as_mixin_column(value):
-                value = np.asarray(value)
-
-            # Structured ndarray gets viewed as a mixin (unless already a valid
-            # mixin class).
-            if (isinstance(value, np.ndarray) and len(value.dtype) > 1 and
-                    not self._add_as_mixin_column(value)):
-                value = value.view(NdarrayMixin)
-
-            # Make new column and assign the value.  If the table currently
-            # has no rows (len=0) of the value is already a Column then
-            # define new column directly from value.  In the latter case
-            # this allows for propagation of Column metadata.  Otherwise
-            # define a new column with the right length and shape and then
-            # set it from value.  This allows for broadcasting, e.g. t['a']
-            # = 1.
-            name = item
-            # If this is a column-like object that could be added directly to table
-            if isinstance(value, BaseColumn) or self._add_as_mixin_column(value):
-                # If we're setting a new column to a scalar, broadcast it.
-                # (things will fail in _init_from_cols if this doesn't work)
-                if (len(self) > 0 and (getattr(value, 'isscalar', False) or
-                                       getattr(value, 'shape', None) == () or
-                                       len(value) == 1)):
-                    new_shape = (len(self),) + getattr(value, 'shape', ())[1:]
-                    if isinstance(value, np.ndarray):
-                        value = np.broadcast_to(value, shape=new_shape,
-                                                subok=True)
-                    elif isinstance(value, ShapedLikeNDArray):
-                        value = value._apply(np.broadcast_to, shape=new_shape,
-                                             subok=True)
-
-                new_column = col_copy(value)
-                new_column.info.name = name
-
-            elif len(self) == 0:
-                new_column = NewColumn(value, name=name)
-            else:
-                new_column = NewColumn(name=name, length=len(self), dtype=value.dtype,
-                                       shape=value.shape[1:],
-                                       unit=getattr(value, 'unit', None))
-                new_column[:] = value
-
-            # Now add new column to the table
-            self.add_columns([new_column], copy=False)
+            self.add_column(value, name=item, copy=True)
 
         else:
             n_cols = len(self.columns)
@@ -1341,7 +1585,7 @@ class Table:
 
                 else:  # Assume this is an iterable that will work
                     if len(value) != n_cols:
-                        raise ValueError('Right side value needs {0} elements (one for each column)'
+                        raise ValueError('Right side value needs {} elements (one for each column)'
                                          .format(n_cols))
                     vals = value
 
@@ -1349,7 +1593,7 @@ class Table:
                     col[item] = val
 
             else:
-                raise ValueError('Illegal type {0} for table item access'
+                raise ValueError('Illegal type {} for table item access'
                                  .format(type(item)))
 
     def __delitem__(self, item):
@@ -1393,27 +1637,12 @@ class Table:
         masked : bool
             State of table masking (`True` or `False`)
         """
-        if hasattr(self, '_masked'):
-            # The only allowed change is from None to False or True, or False to True
-            if self._masked is None and masked in [False, True]:
-                self._masked = masked
-            elif self._masked is False and masked is True:
-                log.info("Upgrading Table to masked Table. Use Table.filled() to convert to unmasked table.")
-                self._masked = masked
-            elif self._masked is masked:
-                raise Exception("Masked attribute is already set to {0}".format(masked))
-            else:
-                raise Exception("Cannot change masked attribute to {0} once it is set to {1}"
-                                .format(masked, self._masked))
+        if masked in [True, False, None]:
+            self._masked = masked
         else:
-            if masked in [True, False, None]:
-                self._masked = masked
-            else:
-                raise ValueError("masked should be one of True, False, None")
-        if self._masked:
-            self._column_class = self.MaskedColumn
-        else:
-            self._column_class = self.Column
+            raise ValueError("masked should be one of True, False, None")
+
+        self._column_class = self.MaskedColumn if self._masked else self.Column
 
     @property
     def ColumnClass(self):
@@ -1440,15 +1669,19 @@ class Table:
         return list(self.columns.keys())
 
     def __len__(self):
-        if len(self.columns) == 0:
-            return 0
+        # For performance reasons (esp. in Row) cache the first column name
+        # and use that subsequently for the table length.  If might not be
+        # available yet or the column might be gone now, in which case
+        # try again in the except block.
+        try:
+            return len(OrderedDict.__getitem__(self.columns, self._first_colname))
+        except (AttributeError, KeyError):
+            if len(self.columns) == 0:
+                return 0
 
-        lengths = set(len(col) for col in self.columns.values())
-        if len(lengths) != 1:
-            len_strs = [' {0} : {1}'.format(name, len(col)) for name, col in self.columns.items()]
-            raise ValueError('Column length mismatch:\n{0}'.format('\n'.join(len_strs)))
-
-        return lengths.pop()
+            # Get the first column name
+            self._first_colname = next(iter(self.columns))
+            return len(self.columns[self._first_colname])
 
     def index_column(self, name):
         """
@@ -1485,19 +1718,29 @@ class Table:
         try:
             return self.colnames.index(name)
         except ValueError:
-            raise ValueError("Column {0} does not exist".format(name))
+            raise ValueError(f"Column {name} does not exist")
 
-    def add_column(self, col, index=None, name=None, rename_duplicate=False, copy=True):
+    def add_column(self, col, index=None, name=None, rename_duplicate=False, copy=True,
+                   default_name=None):
         """
-        Add a new Column object ``col`` to the table.  If ``index``
+        Add a new column to the table using ``col`` as input.  If ``index``
         is supplied then insert column before ``index`` position
         in the list of columns, otherwise append column to the end
         of the list.
 
+        The ``col`` input can be any data object which is acceptable as a
+        `~astropy.table.Table` column object or can be converted.  This includes
+        mixin columns and scalar or length=1 objects which get broadcast to match
+        the table length.
+
+        To add several columns at once use ``add_columns()`` or simply call
+        ``add_column()`` for each one.  There is very little performance difference
+        in the two approaches.
+
         Parameters
         ----------
-        col : Column
-            Column object to add.
+        col : object
+            Data object for the new column
         index : int or `None`
             Insert column before this position or at end (default).
         name : str
@@ -1506,89 +1749,127 @@ class Table:
             Uniquify column name if it already exist. Default is False.
         copy : bool
             Make a copy of the new column. Default is True.
+        default_name : str or `None`
+            Name to use if both ``name`` and ``col.info.name`` are not available.
+            Defaults to ``col{number_of_columns}``.
 
         Examples
         --------
-        Create a table with two columns 'a' and 'b'::
+        Create a table with two columns 'a' and 'b', then create a third column 'c'
+        and append it to the end of the table::
 
-            >>> t = Table([[1, 2, 3], [0.1, 0.2, 0.3]], names=('a', 'b'))
-            >>> print(t)
-             a   b
-            --- ---
-              1 0.1
-              2 0.2
-              3 0.3
-
-        Create a third column 'c' and append it to the end of the table::
-
-            >>> col_c = Column(name='c', data=['x', 'y', 'z'])
+            >>> t = Table([[1, 2], [0.1, 0.2]], names=('a', 'b'))
+            >>> col_c = Column(name='c', data=['x', 'y'])
             >>> t.add_column(col_c)
             >>> print(t)
              a   b   c
             --- --- ---
               1 0.1   x
               2 0.2   y
-              3 0.3   z
 
         Add column 'd' at position 1. Note that the column is inserted
         before the given index::
 
-            >>> col_d = Column(name='d', data=['a', 'b', 'c'])
-            >>> t.add_column(col_d, 1)
+            >>> t.add_column(['a', 'b'], name='d', index=1)
             >>> print(t)
              a   d   b   c
             --- --- --- ---
               1   a 0.1   x
               2   b 0.2   y
-              3   c 0.3   z
 
         Add second column named 'b' with rename_duplicate::
 
-            >>> t = Table([[1, 2, 3], [0.1, 0.2, 0.3]], names=('a', 'b'))
-            >>> col_b = Column(name='b', data=[1.1, 1.2, 1.3])
-            >>> t.add_column(col_b, rename_duplicate=True)
+            >>> t = Table([[1, 2], [0.1, 0.2]], names=('a', 'b'))
+            >>> t.add_column(1.1, name='b', rename_duplicate=True)
             >>> print(t)
              a   b  b_1
             --- --- ---
               1 0.1 1.1
-              2 0.2 1.2
-              3 0.3 1.3
+              2 0.2 1.1
 
         Add an unnamed column or mixin object in the table using a default name
         or by specifying an explicit name with ``name``. Name can also be overridden::
 
             >>> t = Table([[1, 2], [0.1, 0.2]], names=('a', 'b'))
-            >>> col_c = Column(data=['x', 'y'])
-            >>> t.add_column(col_c)
-            >>> t.add_column(col_c, name='c')
-            >>> col_b = Column(name='b', data=[1.1, 1.2])
-            >>> t.add_column(col_b, name='d')
+            >>> t.add_column(['a', 'b'])
+            >>> t.add_column(col_c, name='d')
             >>> print(t)
-             a   b  col2  c   d
-            --- --- ---- --- ---
-              1 0.1    x   x 1.1
-              2 0.2    y   y 1.2
-
-        To add several columns use add_columns.
+             a   b  col2  d
+            --- --- ---- ---
+              1 0.1    a   x
+              2 0.2    b   y
         """
-        if index is None:
-            index = len(self.columns)
-        if name is not None:
-            name = (name,)
+        if default_name is None:
+            default_name = 'col{}'.format(len(self.columns))
 
-        self.add_columns([col], [index], name, copy=copy, rename_duplicate=rename_duplicate)
+        # Convert col data to acceptable object for insertion into self.columns.
+        # Note that along with the lines above and below, this allows broadcasting
+        # of scalars to the correct shape for adding to table.
+        col = self._convert_data_to_col(col, name=name, copy=copy,
+                                        default_name=default_name)
+
+        # Make col data shape correct for scalars.  The second test is to allow
+        # broadcasting an N-d element to a column, e.g. t['new'] = [[1, 2]].
+        if (col.shape == () or col.shape[0] == 1) and len(self) > 0:
+            new_shape = (len(self),) + getattr(col, 'shape', ())[1:]
+            if isinstance(col, np.ndarray):
+                col = np.broadcast_to(col, shape=new_shape,
+                                       subok=True)
+            elif isinstance(col, ShapedLikeNDArray):
+                col = col._apply(np.broadcast_to, shape=new_shape,
+                                   subok=True)
+
+            # broadcast_to() results in a read-only array.  Apparently it only changes
+            # the view to look like the broadcasted array.  So copy.
+            col = col_copy(col)
+
+        name = col.info.name
+
+        # Ensure that new column is the right length
+        if len(self.columns) > 0 and len(col) != len(self):
+            raise ValueError('Inconsistent data column lengths')
+
+        if rename_duplicate:
+            orig_name = name
+            i = 1
+            while name in self.columns:
+                # Iterate until a unique name is found
+                name = orig_name + '_' + str(i)
+                i += 1
+            col.info.name = name
+
+        # Set col parent_table weakref and ensure col has mask attribute if table.masked
+        self._set_col_parent_table_and_mask(col)
+
+        # Add new column as last column
+        self.columns[name] = col
+
+        if index is not None:
+            # Move the other cols to the right of the new one
+            move_names = self.colnames[index:-1]
+            for move_name in move_names:
+                self.columns.move_to_end(move_name, last=True)
 
     def add_columns(self, cols, indexes=None, names=None, copy=True, rename_duplicate=False):
         """
-        Add a list of new Column objects ``cols`` to the table.  If a
+        Add a list of new columns the table using ``cols`` data objects.  If a
         corresponding list of ``indexes`` is supplied then insert column
         before each ``index`` position in the *original* list of columns,
         otherwise append columns to the end of the list.
 
+        The ``cols`` input can include any data objects which are acceptable as
+        `~astropy.table.Table` column objects or can be converted.  This includes
+        mixin columns and scalar or length=1 objects which get broadcast to match
+        the table length.
+
+        From a performance perspective there is little difference between calling
+        this method once or looping over the new columns and calling ``add_column()``
+        for each column.
+
         Parameters
         ----------
-        cols : list of Columns
-            Column objects to add.
+        cols : list of objects
+            List of data objects for the new columns
         indexes : list of ints or `None`
             Insert column before this position or at end (default).
         names : list of str
@@ -1602,120 +1883,72 @@ class Table:
 
         Examples
         --------
-        Create a table with two columns 'a' and 'b'::
+        Create a table with two columns 'a' and 'b', then create columns 'c' and 'd'
+        and append them to the end of the table::
 
-            >>> t = Table([[1, 2, 3], [0.1, 0.2, 0.3]], names=('a', 'b'))
-            >>> print(t)
-             a   b
-            --- ---
-              1 0.1
-              2 0.2
-              3 0.3
-
-        Create column 'c' and 'd' and append them to the end of the table::
-
-            >>> col_c = Column(name='c', data=['x', 'y', 'z'])
-            >>> col_d = Column(name='d', data=['u', 'v', 'w'])
+            >>> t = Table([[1, 2], [0.1, 0.2]], names=('a', 'b'))
+            >>> col_c = Column(name='c', data=['x', 'y'])
+            >>> col_d = Column(name='d', data=['u', 'v'])
             >>> t.add_columns([col_c, col_d])
             >>> print(t)
              a   b   c   d
             --- --- --- ---
               1 0.1   x   u
               2 0.2   y   v
-              3 0.3   z   w
 
         Add column 'c' at position 0 and column 'd' at position 1. Note that
         the columns are inserted before the given position::
 
-            >>> t = Table([[1, 2, 3], [0.1, 0.2, 0.3]], names=('a', 'b'))
-            >>> col_c = Column(name='c', data=['x', 'y', 'z'])
-            >>> col_d = Column(name='d', data=['u', 'v', 'w'])
-            >>> t.add_columns([col_c, col_d], [0, 1])
+            >>> t = Table([[1, 2], [0.1, 0.2]], names=('a', 'b'))
+            >>> t.add_columns([['x', 'y'], ['u', 'v']], names=['c', 'd'],
+            ...               indexes=[0, 1])
             >>> print(t)
              c   a   d   b
             --- --- --- ---
               x   1   u 0.1
               y   2   v 0.2
-              z   3   w 0.3
 
         Add second column 'b' and column 'c' with ``rename_duplicate``::
 
-            >>> t = Table([[1, 2, 3], [0.1, 0.2, 0.3]], names=('a', 'b'))
-            >>> col_b = Column(name='b', data=[1.1, 1.2, 1.3])
-            >>> col_c = Column(name='c', data=['x', 'y', 'z'])
-            >>> t.add_columns([col_b, col_c], rename_duplicate=True)
+            >>> t = Table([[1, 2], [0.1, 0.2]], names=('a', 'b'))
+            >>> t.add_columns([[1.1, 1.2], ['x', 'y']], names=('b', 'c'),
+            ...               rename_duplicate=True)
             >>> print(t)
              a   b  b_1  c
             --- --- --- ---
               1 0.1 1.1  x
               2 0.2 1.2  y
-              3 0.3 1.3  z
 
         Add unnamed columns or mixin objects in the table using default names
         or by specifying explicit names with ``names``. Names can also be overridden::
 
             >>> t = Table()
-            >>> col_a = Column(data=['x', 'y'])
             >>> col_b = Column(name='b', data=['u', 'v'])
-            >>> t.add_columns([col_a, col_b])
-            >>> t.add_columns([col_a, col_b], names=['c', 'd'])
+            >>> t.add_columns([[1, 2], col_b])
+            >>> t.add_columns([[3, 4], col_b], names=['c', 'd'])
             >>> print(t)
             col0  b   c   d
             ---- --- --- ---
-               x   u   x   u
-               y   v   y   v
+               1   u   3   u
+               2   v   4   v
         """
         if indexes is None:
             indexes = [len(self.columns)] * len(cols)
         elif len(indexes) != len(cols):
             raise ValueError('Number of indexes must match number of cols')
 
-        if copy:
-            cols = [col_copy(col) for col in cols]
-
-        if len(self.columns) == 0:
-            # No existing table data, init from cols
-            newcols = cols
-        else:
-            newcols = list(self.columns.values())
-            new_indexes = list(range(len(newcols) + 1))
-            for col, index in zip(cols, indexes):
-                i = new_indexes.index(index)
-                new_indexes.insert(i, None)
-                newcols.insert(i, col)
-
         if names is None:
             names = (None,) * len(cols)
         elif len(names) != len(cols):
-                raise ValueError('Number of names must match number of cols')
+            raise ValueError('Number of names must match number of cols')
 
-        for i, (col, name) in enumerate(zip(cols, names)):
-            if name is None:
-                if col.info.name is not None:
-                    continue
-                name = 'col{}'.format(i + len(self.columns))
-            if col.info.parent_table is not None:
-                col = col_copy(col)
-            col.info.name = name
+        default_names = ['col{}'.format(ii + len(self.columns))
+                         for ii in range(len(cols))]
 
-        if rename_duplicate:
-            existing_names = set(self.colnames)
-            for col in cols:
-                i = 1
-                orig_name = col.info.name
-                if col.info.name in existing_names:
-                    # If the column belongs to another table then copy it
-                    # before renaming
-                    while col.info.name in existing_names:
-                        # Iterate until a unique name is found
-                        if col.info.parent_table is not None:
-                            col = col_copy(col)
-                        new_name = '{0}_{1}'.format(orig_name, i)
-                        col.info.name = new_name
-                        i += 1
-                    existing_names.add(new_name)
-
-        self._init_from_cols(newcols)
+        for ii in reversed(np.argsort(indexes)):
+            self.add_column(cols[ii], index=indexes[ii], name=names[ii],
+                            default_name=default_names[ii],
+                            rename_duplicate=rename_duplicate, copy=copy)
 
     def _replace_column_warnings(self, name, col):
         """
@@ -1734,7 +1967,7 @@ class Table:
         self.replace_column(name, col)
 
         if 'always' in warns:
-            warnings.warn("replaced column '{}'".format(name),
+            warnings.warn(f"replaced column '{name}'",
                           TableReplaceWarning, stacklevel=3)
 
         if 'slice' in warns:
@@ -1772,9 +2005,17 @@ class Table:
                        .format(name, changed_attrs))
                 warnings.warn(msg, TableReplaceWarning, stacklevel=3)
 
-    def replace_column(self, name, col):
+    def replace_column(self, name, col, copy=True):
         """
         Replace column ``name`` with the new ``col`` object.
+
+        The behavior of ``copy`` for Column objects is:
+        - copy=True: new class instance with a copy of data and deep copy of meta
+        - copy=False: new class instance with same data and a key-only copy of meta
+
+        For mixin columns:
+        - copy=True: new class instance with copy of data and deep copy of meta
+        - copy=False: original instance (no copy at all)
 
         Parameters
         ----------
@@ -1782,6 +2023,8 @@ class Table:
             Name of column to replace
         col : column object (list, ndarray, Column, etc)
             New column object to replace the existing column
+        copy : bool
+            Make copy of the input ``col``, default=True
 
         Examples
         --------
@@ -1792,15 +2035,20 @@ class Table:
             >>> t.replace_column('a', float_a)
         """
         if name not in self.colnames:
-            raise ValueError('column name {0} is not in the table'.format(name))
+            raise ValueError(f'column name {name} is not in the table')
 
         if self[name].info.indices:
             raise ValueError('cannot replace a table index column')
 
-        t = self.__class__([col], names=[name])
-        cols = OrderedDict(self.columns)
-        cols[name] = t[name]
-        self._init_from_cols(cols.values())
+        col = self._convert_data_to_col(col, name=name, copy=copy)
+        self._set_col_parent_table_and_mask(col)
+
+        # Ensure that new column is the right length, unless it is the only column
+        # in which case re-sizing is allowed.
+        if len(self.columns) > 1 and len(col) != len(self[name]):
+            raise ValueError('length of new column must match table length')
+
+        self.columns.__setitem__(name, col, validated=True)
 
     def remove_row(self, index):
         """
@@ -1995,7 +2243,7 @@ class Table:
 
         for name in names:
             if name not in self.columns:
-                raise KeyError("Column {0} does not exist".format(name))
+                raise KeyError(f"Column {name} does not exist")
 
         for name in names:
             self.columns.pop(name)
@@ -2105,7 +2353,7 @@ class Table:
 
         for name in names:
             if name not in self.columns:
-                raise KeyError("Column {0} does not exist".format(name))
+                raise KeyError(f"Column {name} does not exist")
 
         remove = list(set(self.keys()) - set(names))
 
@@ -2151,9 +2399,55 @@ class Table:
         '''
 
         if name not in self.keys():
-            raise KeyError("Column {0} does not exist".format(name))
+            raise KeyError(f"Column {name} does not exist")
 
         self.columns[name].info.name = new_name
+
+    def rename_columns(self, names, new_names):
+        '''
+        Rename multiple columns.
+
+        Parameters
+        ----------
+        names : list, tuple
+            A list or tuple of existing column names.
+        new_names : list, tuple
+            A list or tuple of new column names.
+
+        Examples
+        --------
+        Create a table with three columns 'a', 'b', 'c'::
+
+            >>> t = Table([[1,2],[3,4],[5,6]], names=('a','b','c'))
+            >>> print(t)
+              a   b   c
+             --- --- ---
+              1   3   5
+              2   4   6
+
+        Renaming columns 'a' to 'aa' and 'b' to 'bb'::
+
+            >>> names = ('a','b')
+            >>> new_names = ('aa','bb')
+            >>> t.rename_columns(names, new_names)
+            >>> print(t)
+             aa  bb   c
+            --- --- ---
+              1   3   5
+              2   4   6
+        '''
+
+        if not self._is_list_or_tuple_of_str(names):
+            raise TypeError("input 'names' must be a tuple or a list of column names")
+
+        if not self._is_list_or_tuple_of_str(new_names):
+            raise TypeError("input 'new_names' must be a tuple or a list of column names")
+
+        if len(names) != len(new_names):
+            raise ValueError("input 'names' and 'new_names' list arguments must be the same length")
+
+        for name, new_name in zip(names, new_names):
+            self.rename_column(name, new_name)
 
     def _set_row(self, idx, colnames, vals):
         try:
@@ -2259,7 +2553,7 @@ class Table:
 
         N = len(self)
         if index < -N or index > N:
-            raise IndexError("Index {0} is out of bounds for table with length {1}"
+            raise IndexError("Index {} is out of bounds for table with length {}"
                              .format(index, N))
         if index < 0:
             index += N
@@ -2268,11 +2562,6 @@ class Table:
             """Minimal checker for mapping (dict-like) interface for obj"""
             attrs = ('__getitem__', '__len__', '__iter__', 'keys', 'values', 'items')
             return all(hasattr(obj, attr) for attr in attrs)
-
-        if mask is not None and not self.masked:
-            # Possibly issue upgrade warning and update self.ColumnClass.  This
-            # does not change the existing columns.
-            self._set_masked(True)
 
         if _is_mapping(vals) or vals is None:
             # From the vals and/or mask mappings create the corresponding lists
@@ -2306,7 +2595,7 @@ class Table:
                         # For masked table any unsupplied values are masked by default.
                         mask_list.append(self.masked and vals is not None)
                     else:
-                        raise ValueError("Value must be supplied for column '{0}'".format(name))
+                        raise ValueError(f"Value must be supplied for column '{name}'")
 
             vals = vals_list
             mask = mask_list
@@ -2331,27 +2620,30 @@ class Table:
         try:
             # Insert val at index for each column
             for name, col, val, mask_ in zip(colnames, self.columns.values(), vals, mask):
-                # If the new row caused a change in self.ColumnClass then
-                # Column-based classes need to be converted first.  This is
-                # typical for adding a row with mask values to an unmasked table.
-                if isinstance(col, Column) and not isinstance(col, self.ColumnClass):
-                    col = self.ColumnClass(col, copy=False)
+                # If new val is masked and the existing column does not support masking
+                # then upgrade the column to a mask-enabled type: either the table-level
+                # default ColumnClass or else MaskedColumn.
+                if mask_ and isinstance(col, Column) and not isinstance(col, MaskedColumn):
+                    col_cls = (self.ColumnClass
+                               if issubclass(self.ColumnClass, self.MaskedColumn)
+                               else self.MaskedColumn)
+                    col = col_cls(col, copy=False)
 
                 newcol = col.insert(index, val, axis=0)
-                if not isinstance(newcol, BaseColumn):
-                    newcol.info.name = name
-                    if self.masked:
-                        newcol.mask = FalseArray(newcol.shape)
 
                 if len(newcol) != N + 1:
-                    raise ValueError('Incorrect length for column {0} after inserting {1}'
-                                     ' (expected {2}, got {3})'
+                    raise ValueError('Incorrect length for column {} after inserting {}'
+                                     ' (expected {}, got {})'
                                      .format(name, val, len(newcol), N + 1))
                 newcol.info.parent_table = self
 
-                # Set mask if needed
-                if self.masked:
-                    newcol.mask[index] = mask_
+                # Set mask if needed and possible
+                if mask_:
+                    if hasattr(newcol, 'mask'):
+                        newcol[index] = np.ma.masked
+                    else:
+                        raise TypeError("mask was supplied for column '{}' but it does not "
+                                        "support masked values".format(col.info.name))
 
                 columns[name] = newcol
 
@@ -2360,7 +2652,7 @@ class Table:
                 table_index.insert_row(index, vals, self.columns.values())
 
         except Exception as err:
-            raise ValueError("Unable to insert row because of exception in column '{0}':\n{1}"
+            raise ValueError("Unable to insert row because of exception in column '{}':\n{}"
                              .format(name, err))
         else:
             self._replace_cols(columns)
@@ -2378,7 +2670,7 @@ class Table:
 
         self.columns = columns
 
-    def argsort(self, keys=None, kind=None):
+    def argsort(self, keys=None, kind=None, reverse=False):
         """
         Return the indices which would sort the table according to one or
         more key columns.  This simply calls the `numpy.argsort` function on
@@ -2390,6 +2682,8 @@ class Table:
             The column name(s) to order the table by
         kind : {'quicksort', 'mergesort', 'heapsort'}, optional
             Sorting algorithm.
+        reverse : bool
+            Sort in reverse order (default=False)
 
         Returns
         -------
@@ -2402,7 +2696,7 @@ class Table:
 
         # use index sorted order if possible
         if keys is not None:
-            index = get_index(self, self[keys])
+            index = get_index(self, names=keys)
             if index is not None:
                 return index.sorted_data()
 
@@ -2413,13 +2707,18 @@ class Table:
             kwargs['kind'] = kind
 
         if keys:
-            data = self[keys].as_array()
+            data = self.as_array(names=keys)
         else:
             data = self.as_array()
 
-        return data.argsort(**kwargs)
+        idx = data.argsort(**kwargs)
 
-    def sort(self, keys=None):
+        if reverse:
+            return idx[::-1]
+
+        return idx
+
+    def sort(self, keys=None, reverse=False):
         '''
         Sort the table according to one or more keys. This operates
         on the existing table and does not return a new table.
@@ -2430,12 +2729,15 @@ class Table:
             The key(s) to order the table by. If None, use the
             primary index of the Table.
 
+        reverse : bool
+            Sort in reverse order (default=False)
+
         Examples
         --------
         Create a table with 3 columns::
 
-            >>> t = Table([['Max', 'Jo', 'John'], ['Miller','Miller','Jackson'],
-            ...         [12,15,18]], names=('firstname','name','tel'))
+            >>> t = Table([['Max', 'Jo', 'John'], ['Miller', 'Miller', 'Jackson'],
+            ...            [12, 15, 18]], names=('firstname', 'name', 'tel'))
             >>> print(t)
             firstname   name  tel
             --------- ------- ---
@@ -2445,13 +2747,24 @@ class Table:
 
         Sorting according to standard sorting rules, first 'name' then 'firstname'::
 
-            >>> t.sort(['name','firstname'])
+            >>> t.sort(['name', 'firstname'])
             >>> print(t)
             firstname   name  tel
             --------- ------- ---
                  John Jackson  18
                    Jo  Miller  15
                   Max  Miller  12
+
+        Sorting according to standard sorting rules, first 'firstname' then 'tel',
+        in reverse order::
+
+            >>> t.sort(['firstname', 'tel'], reverse=True)
+            >>> print(t)
+            firstname   name  tel
+            --------- ------- ---
+                  Max  Miller  12
+                 John Jackson  18
+                   Jo  Miller  15
         '''
         if keys is None:
             if not self.indices:
@@ -2462,7 +2775,12 @@ class Table:
             keys = [keys]
 
         indexes = self.argsort(keys)
-        sort_index = get_index(self, self[keys])
+
+        if reverse:
+            indexes = indexes[::-1]
+
+        sort_index = get_index(self, names=keys)
+
         if sort_index is not None:
             # avoid inefficient relabelling of sorted index
             prev_frozen = sort_index._frozen
@@ -2510,89 +2828,6 @@ class Table:
         for index in self.indices:
             index.reverse()
 
-    @classmethod
-    def read(cls, *args, **kwargs):
-        """
-        Read and parse a data table and return as a Table.
-
-        This function provides the Table interface to the astropy unified I/O
-        layer.  This allows easily reading a file in many supported data formats
-        using syntax such as::
-
-          >>> from astropy.table import Table
-          >>> dat = Table.read('table.dat', format='ascii')
-          >>> events = Table.read('events.fits', format='fits')
-
-        See also: http://docs.astropy.org/en/stable/io/unified.html
-
-        Parameters
-        ----------
-        format : str
-            File format specifier.
-        *args : tuple, optional
-            Positional arguments passed through to data reader. If supplied the
-            first argument is the input filename.
-        **kwargs : dict, optional
-            Keyword arguments passed through to data reader.
-
-        Returns
-        -------
-        out : `Table`
-            Table corresponding to file contents
-
-        Notes
-        -----
-        """
-        # The hanging Notes section just above is a section placeholder for
-        # import-time processing that collects available formats into an
-        # RST table and inserts at the end of the docstring.  DO NOT REMOVE.
-
-        out = io_registry.read(cls, *args, **kwargs)
-        # For some readers (e.g., ascii.ecsv), the returned `out` class is not
-        # guaranteed to be the same as the desired output `cls`.  If so,
-        # try coercing to desired class without copying (io.registry.read
-        # would normally do a copy).  The normal case here is swapping
-        # Table <=> QTable.
-        if cls is not out.__class__:
-            try:
-                out = cls(out, copy=False)
-            except Exception:
-                raise TypeError('could not convert reader output to {0} '
-                                'class.'.format(cls.__name__))
-        return out
-
-    def write(self, *args, **kwargs):
-        """Write this Table object out in the specified format.
-
-        This function provides the Table interface to the astropy unified I/O
-        layer.  This allows easily writing a file in many supported data formats
-        using syntax such as::
-
-          >>> from astropy.table import Table
-          >>> dat = Table([[1, 2], [3, 4]], names=('a', 'b'))
-          >>> dat.write('table.dat', format='ascii')
-
-        See also: http://docs.astropy.org/en/stable/io/unified.html
-
-        Parameters
-        ----------
-        format : str
-            File format specifier.
-        serialize_method : str, dict, optional
-            Serialization method specifier for columns.
-        *args : tuple, optional
-            Positional arguments passed through to data writer. If supplied the
-            first argument is the output filename.
-        **kwargs : dict, optional
-            Keyword arguments passed through to data writer.
-
-        Notes
-        -----
-        """
-        serialize_method = kwargs.pop('serialize_method', None)
-        with serialize_method_as(self, serialize_method):
-            io_registry.write(self, *args, **kwargs)
-
     def copy(self, copy_data=True):
         '''
         Return a copy of the table.
@@ -2635,7 +2870,7 @@ class Table:
         if isinstance(other, Table):
             other = other.as_array()
 
-        if self.masked:
+        if self.has_masked_columns:
             if isinstance(other, np.ma.MaskedArray):
                 result = self.as_array() == other
             else:
@@ -2667,25 +2902,25 @@ class Table:
         """
         Group this table by the specified ``keys``
 
-        This effectively splits the table into groups which correspond to
-        unique values of the ``keys`` grouping object.  The output is a new
-        `TableGroups` which contains a copy of this table but sorted by row
-        according to ``keys``.
+        This effectively splits the table into groups which correspond to unique
+        values of the ``keys`` grouping object.  The output is a new
+        `~astropy.table.TableGroups` which contains a copy of this table but
+        sorted by row according to ``keys``.
 
         The ``keys`` input to `group_by` can be specified in different ways:
 
           - String or list of strings corresponding to table column name(s)
           - Numpy array (homogeneous or structured) with same length as this table
-          - `Table` with same length as this table
+          - `~astropy.table.Table` with same length as this table
 
         Parameters
         ----------
-        keys : str, list of str, numpy array, or `Table`
+        keys : str, list of str, numpy array, or `~astropy.table.Table`
             Key grouping object
 
         Returns
         -------
-        out : `Table`
+        out : `~astropy.table.Table`
             New table with groups set
         """
         return groups.table_group_by(self, keys)
@@ -2742,7 +2977,7 @@ class Table:
           >>> t = QTable([q, tm, sc, dt], names=['q', 'tm', 'sc', 'dt'])
 
           >>> df = t.to_pandas(index='tm')
-          >>> with pd.option_context('display.width', 80):
+          >>> with pd.option_context('display.max_columns', 20):
           ...     print(df)
                         q  sc.ra  sc.dec       dt
           tm
@@ -2796,14 +3031,17 @@ class Table:
                     tbl[col.info.name] = new_col
 
             # Convert the table to one with no mixins, only Column objects.
-            encode_tbl = serialize._represent_mixins_as_columns(tbl)
+            encode_tbl = serialize.represent_mixins_as_columns(tbl)
             return encode_tbl
 
         tbl = _encode_mixins(self)
 
-        if any(getattr(col, 'ndim', 1) > 1 for col in tbl.columns.values()):
-            raise ValueError("Cannot convert a table with multi-dimensional "
-                             "columns to a pandas DataFrame")
+        badcols = [name for name, col in self.columns.items()
+                   if (getattr(col, 'ndim', 1) > 1)]
+        if badcols:
+            raise ValueError(
+                "Cannot convert a table with multi-dimensional columns to a "
+                "pandas DataFrame. Offending columns are: {}".format(badcols))
 
         out = OrderedDict()
 
@@ -2831,7 +3069,7 @@ class Table:
     @classmethod
     def from_pandas(cls, dataframe, index=False):
         """
-        Create a `Table` from a :class:`pandas.DataFrame` instance
+        Create a `~astropy.table.Table` from a :class:`pandas.DataFrame` instance
 
         In addition to converting generic numeric or string columns, this supports
         conversion of pandas Date and Time delta columns to `~astropy.time.Time`
@@ -2846,8 +3084,8 @@ class Table:
 
         Returns
         -------
-        table : `Table`
-            A `Table` (or subclass) instance
+        table : `~astropy.table.Table`
+            A `~astropy.table.Table` (or subclass) instance
 
         Raises
         ------
@@ -2856,7 +3094,8 @@ class Table:
 
         Examples
         --------
-        Here we convert a :class:`pandas.DataFrame` instance to a `QTable`.
+        Here we convert a :class:`pandas.DataFrame` instance
+        to a `~astropy.table.QTable`.
 
           >>> import numpy as np
           >>> import pandas as pd
@@ -2867,7 +3106,7 @@ class Table:
           >>> df = pd.DataFrame({'time': time})
           >>> df['dt'] = dt
           >>> df['x'] = [3., 4.]
-          >>> with pd.option_context('display.width', 80):
+          >>> with pd.option_context('display.max_columns', 20):
           ...     print(df)
                   time       dt    x
           0 1998-01-01 00:00:01  3.0
@@ -2945,12 +3184,12 @@ class Table:
 class QTable(Table):
     """A class to represent tables of heterogeneous data.
 
-    `QTable` provides a class for heterogeneous tabular data which can be
-    easily modified, for instance adding columns or new rows.
+    `~astropy.table.QTable` provides a class for heterogeneous tabular data
+    which can be easily modified, for instance adding columns or new rows.
 
-    The `QTable` class is identical to `Table` except that columns with an
-    associated ``unit`` attribute are converted to `~astropy.units.Quantity`
-    objects.
+    The `~astropy.table.QTable` class is identical to `~astropy.table.Table`
+    except that columns with an associated ``unit`` attribute are converted to
+    `~astropy.units.Quantity` objects.
 
     See also:
 
@@ -2980,7 +3219,7 @@ class QTable(Table):
 
     """
 
-    def _add_as_mixin_column(self, col):
+    def _is_mixin_for_table(self, col):
         """
         Determine if ``col`` should be added to the table directly as
         a mixin column.
@@ -2988,7 +3227,15 @@ class QTable(Table):
         return has_info_class(col, MixinInfo)
 
     def _convert_col_for_table(self, col):
-        if (isinstance(col, Column) and getattr(col, 'unit', None) is not None):
+        if isinstance(col, Column) and getattr(col, 'unit', None) is not None:
+            # What to do with MaskedColumn with units: leave as MaskedColumn or
+            # turn into Quantity and drop mask?  Assuming we have masking support
+            # in Quantity someday, let's drop the mask (consistent with legacy
+            # behavior) but issue a warning.
+            if isinstance(col, MaskedColumn) and np.any(col.mask):
+                warnings.warn("dropping mask in Quantity column '{}': "
+                              "masked Quantity not supported".format(col.info.name))
+
             # We need to turn the column into a quantity, or a subclass
             # identified in the unit (such as u.mag()).
             q_cls = getattr(col.unit, '_quantity_class', Quantity)

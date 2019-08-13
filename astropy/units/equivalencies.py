@@ -2,7 +2,6 @@
 """A set of standard astronomical equivalencies."""
 
 from collections import UserList
-import copy
 
 # THIRD-PARTY
 import numpy as np
@@ -10,6 +9,7 @@ import warnings
 
 # LOCAL
 from astropy.constants import si as _si
+from astropy.utils.exceptions import AstropyDeprecationWarning
 from astropy.utils.misc import isiterable
 from . import si
 from . import cgs
@@ -38,11 +38,11 @@ class Equivalency(UserList):
     kwargs: `dict`
         Any positional or keyword arguments used to make the equivalency.
     """
+
     def __init__(self, equiv_list, name='', kwargs=None):
         self.data = equiv_list
         self.name = [name]
         self.kwargs = [kwargs] if kwargs is not None else [dict()]
-
 
     def __add__(self, other):
         if isinstance(other, Equivalency):
@@ -562,13 +562,14 @@ def brightness_temperature(frequency, beam_area=None):
         warnings.warn("The inputs to `brightness_temperature` have changed. "
                       "Frequency is now the first input, and angular area "
                       "is the second, optional input.",
-                      DeprecationWarning)
+                      AstropyDeprecationWarning)
         frequency, beam_area = beam_area, frequency
 
     nu = frequency.to(si.GHz, spectral())
 
     if beam_area is not None:
         beam = beam_area.to_value(si.sr)
+
         def convert_Jy_to_K(x_jybm):
             factor = (2 * _si.k_B * si.K * nu**2 / _si.c**2).to(astrophys.Jy).value
             return (x_jybm / beam / factor)
@@ -699,6 +700,7 @@ def assert_is_spectral_unit(value):
     except (AttributeError, UnitsError) as ex:
         raise UnitsError("The 'rest' value must be a spectral equivalent "
                          "(frequency, wavelength, or energy).")
+
 
 def pixel_scale(pixscale):
     """

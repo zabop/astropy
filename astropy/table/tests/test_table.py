@@ -12,6 +12,7 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 
 from astropy.io import fits
+from astropy.table import Table, QTable, MaskedColumn
 from astropy.tests.helper import (assert_follows_unicode_guidelines,
                                   ignore_warnings, catch_warnings)
 
@@ -837,7 +838,11 @@ class TestRemove(SetupData):
         self._setup(table_types)
         self.t.remove_columns('a')
         assert self.t.columns.keys() == []
-        assert self.t.as_array() is None
+        assert self.t.as_array().size == 0
+        # Regression test for gh-8640
+        assert not self.t
+        assert isinstance(self.t == None, np.ndarray)
+        assert (self.t == None).size == 0
 
     def test_2(self, table_types):
         self._setup(table_types)
@@ -906,8 +911,8 @@ class TestRemove(SetupData):
         self.t.add_column(self.b)
         self.t.remove_rows([0, 2])
         assert self.t['a'].meta == {'aa': [0, 1, 2, 3, 4]}
-        assert self.t.dtype == np.dtype([(str('a'), 'int'),
-                                         (str('b'), 'int')])
+        assert self.t.dtype == np.dtype([('a', 'int'),
+                                         ('b', 'int')])
 
     def test_delitem_row(self, table_types):
         self._setup(table_types)
@@ -948,7 +953,11 @@ class TestRemove(SetupData):
         self._setup(table_types)
         del self.t['a']
         assert self.t.columns.keys() == []
-        assert self.t.as_array() is None
+        assert self.t.as_array().size == 0
+        # Regression test for gh-8640
+        assert not self.t
+        assert isinstance(self.t == None, np.ndarray)
+        assert (self.t == None).size == 0
 
     def test_delitem2(self, table_types):
         self._setup(table_types)
@@ -974,7 +983,11 @@ class TestKeep(SetupData):
         t = table_types.Table([self.a, self.b])
         t.keep_columns([])
         assert t.columns.keys() == []
-        assert t.as_array() is None
+        assert t.as_array().size == 0
+        # Regression test for gh-8640
+        assert not t
+        assert isinstance(t == None, np.ndarray)
+        assert (t == None).size == 0
 
     def test_2(self, table_types):
         self._setup(table_types)
@@ -1018,6 +1031,18 @@ class TestRename(SetupData):
         assert np.all(t['c'] == np.array([1, 2, 3]))
         assert np.all(t['a'] == np.array([4, 5, 6]))
 
+    def test_rename_columns(self, table_types):
+        self._setup(table_types)
+        t = table_types.Table([self.a, self.b, self.c])
+        t.rename_columns(('a', 'b', 'c'), ('aa', 'bb', 'cc'))
+        assert t.colnames == ['aa', 'bb', 'cc']
+        t.rename_columns(['bb', 'cc'], ['b', 'c'])
+        assert t.colnames == ['aa', 'b', 'c']
+        with pytest.raises(TypeError):
+            t.rename_columns(('aa'), ['a'])
+        with pytest.raises(ValueError):
+            t.rename_columns(['a'], ['b', 'c'])
+
 
 @pytest.mark.usefixtures('table_types')
 class TestSort():
@@ -1042,6 +1067,26 @@ class TestSort():
                                           [3, 4],
                                           [1, 2]]))
 
+    def test_single_reverse(self, table_types):
+        t = table_types.Table()
+        t.add_column(table_types.Column(name='a', data=[2, 1, 3]))
+        t.add_column(table_types.Column(name='b', data=[6, 5, 4]))
+        t.add_column(table_types.Column(name='c', data=[(1, 2), (3, 4), (4, 5)]))
+        assert np.all(t['a'] == np.array([2, 1, 3]))
+        assert np.all(t['b'] == np.array([6, 5, 4]))
+        t.sort('a', reverse=True)
+        assert np.all(t['a'] == np.array([3, 2, 1]))
+        assert np.all(t['b'] == np.array([4, 6, 5]))
+        assert np.all(t['c'] == np.array([[4, 5],
+                                          [1, 2],
+                                          [3, 4]]))
+        t.sort('b', reverse=True)
+        assert np.all(t['a'] == np.array([2, 1, 3]))
+        assert np.all(t['b'] == np.array([6, 5, 4]))
+        assert np.all(t['c'] == np.array([[1, 2],
+                                          [3, 4],
+                                          [4, 5]]))
+
     def test_single_big(self, table_types):
         """Sort a big-ish table with a non-trivial sort order"""
         x = np.arange(10000)
@@ -1052,9 +1097,10 @@ class TestSort():
         assert np.all(t['x'] == x[idx])
         assert np.all(t['y'] == y[idx])
 
-    def test_empty(self, table_types):
+    @pytest.mark.parametrize('reverse', [True, False])
+    def test_empty_reverse(self, table_types, reverse):
         t = table_types.Table([[], []], dtype=['f4', 'U1'])
-        t.sort('col1')
+        t.sort('col1', reverse=reverse)
 
     def test_multiple(self, table_types):
         t = table_types.Table()
@@ -1071,6 +1117,22 @@ class TestSort():
         t.sort(('a', 'b'))
         assert np.all(t['a'] == np.array([1, 1, 2, 2, 3, 3]))
         assert np.all(t['b'] == np.array([4, 5, 3, 6, 4, 5]))
+
+    def test_multiple_reverse(self, table_types):
+        t = table_types.Table()
+        t.add_column(table_types.Column(name='a', data=[2, 1, 3, 2, 3, 1]))
+        t.add_column(table_types.Column(name='b', data=[6, 5, 4, 3, 5, 4]))
+        assert np.all(t['a'] == np.array([2, 1, 3, 2, 3, 1]))
+        assert np.all(t['b'] == np.array([6, 5, 4, 3, 5, 4]))
+        t.sort(['a', 'b'], reverse=True)
+        assert np.all(t['a'] == np.array([3, 3, 2, 2, 1, 1]))
+        assert np.all(t['b'] == np.array([5, 4, 6, 3, 5, 4]))
+        t.sort(['b', 'a'], reverse=True)
+        assert np.all(t['a'] == np.array([2, 3, 1, 3, 1, 2]))
+        assert np.all(t['b'] == np.array([6, 5, 5, 4, 4, 3]))
+        t.sort(('a', 'b'), reverse=True)
+        assert np.all(t['a'] == np.array([3, 3, 2, 2, 1, 1]))
+        assert np.all(t['b'] == np.array([5, 4, 6, 3, 5, 4]))
 
     def test_multiple_with_bytes(self, table_types):
         t = table_types.Table()
@@ -1110,6 +1172,19 @@ class TestSort():
         assert np.all(t['a'][i0] == t['a'][i1])
         i0 = t.argsort(['a', 'b'])
         i1 = t.as_array().argsort(order=['a', 'b'])
+        assert np.all(t['a'][i0] == t['a'][i1])
+        assert np.all(t['b'][i0] == t['b'][i1])
+
+    def test_argsort_reverse(self, table_types):
+        t = table_types.Table()
+        t.add_column(table_types.Column(name='a', data=[2, 1, 3, 2, 3, 1]))
+        t.add_column(table_types.Column(name='b', data=[6, 5, 4, 3, 5, 4]))
+        assert np.all(t.argsort(reverse=True) == np.array([4, 2, 0, 3, 1, 5]))
+        i0 = t.argsort('a', reverse=True)
+        i1 = np.array([4, 2, 3, 0, 5, 1])
+        assert np.all(t['a'][i0] == t['a'][i1])
+        i0 = t.argsort(['a', 'b'], reverse=True)
+        i1 = np.array([4, 2, 0, 3, 1, 5])
         assert np.all(t['a'][i0] == t['a'][i1])
         assert np.all(t['b'][i0] == t['b'][i1])
 
@@ -1165,7 +1240,7 @@ class TestIterator():
     def test_iterator(self, table_types):
         d = np.array([(2, 1),
                       (3, 6),
-                      (4, 5)], dtype=[(str('a'), 'i4'), (str('b'), 'i4')])
+                      (4, 5)], dtype=[('a', 'i4'), ('b', 'i4')])
         t = table_types.Table(d)
         if t.masked:
             with pytest.raises(ValueError):
@@ -1205,7 +1280,7 @@ class TestConvertNumpyArray():
         assert d.colnames == list(np_data.dtype.names)
 
         with pytest.raises(ValueError):
-            np_data = np.array(d, dtype=[(str('c'), 'i8'), (str('d'), 'i8')])
+            np_data = np.array(d, dtype=[('c', 'i8'), ('d', 'i8')])
 
     def test_as_array_byteswap(self, table_types):
         """Test for https://github.com/astropy/astropy/pull/4080"""
@@ -1654,7 +1729,9 @@ class TestPandas:
 
         with pytest.raises(ValueError) as exc:
             t.to_pandas()
-        assert exc.value.args[0] == "Cannot convert a table with multi-dimensional columns to a pandas DataFrame"
+        assert (exc.value.args[0] ==
+            "Cannot convert a table with multi-dimensional columns "
+            "to a pandas DataFrame. Offending columns are: ['b']")
 
     def test_mixin_pandas(self):
         t = table.QTable()
@@ -1693,8 +1770,8 @@ class TestPandas:
         import pandas as pd
         row_index = pd.RangeIndex(0, 2, 1)
         tm_index = pd.DatetimeIndex(['1998-01-01', '2002-01-01'],
-                                                   dtype='datetime64[ns]',
-                                                   name='tm', freq=None)
+                                    dtype='datetime64[ns]',
+                                    name='tm', freq=None)
 
         tm = Time([1998, 2002], format='jyear')
         x = [1, 2]
@@ -1719,8 +1796,7 @@ class TestPandas:
 
         with pytest.raises(ValueError) as err:
             t.to_pandas(index='not a column')
-        assert 'index must be None, False' in str(err)
-
+        assert 'index must be None, False' in str(err.value)
 
     def test_mixin_pandas_masked(self):
         tm = Time([1, 2, 3], format='cxcsec')
@@ -1781,7 +1857,8 @@ class TestPandas:
 
         for name, column in t.columns.items():
             assert np.all(column.data == t2[name].data)
-            assert np.all(column.mask == t2[name].mask)
+            if hasattr(t2[name], 'mask'):
+                assert np.all(column.mask == t2[name].mask)
             # Masked integer type comes back as float.  Nothing we can do about this.
             if column.dtype.kind == 'i':
                 if np.any(column.mask):
@@ -1804,11 +1881,14 @@ class TestReplaceColumn(SetupData):
         self._setup(table_types)
         t = table_types.Table([self.a, self.b])
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"Cannot replace column 'a'.  Use Table.replace_column.. instead."):
             t.columns['a'] = [1, 2, 3]
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"column name not there is not in the table"):
             t.replace_column('not there', [1, 2, 3])
+
+        with pytest.raises(ValueError, match=r"length of new column must match table length"):
+            t.replace_column('a', [1, 2])
 
     def test_replace_column(self, table_types):
         """Replace existing column with a new column"""
@@ -1830,6 +1910,12 @@ class TestReplaceColumn(SetupData):
             assert t['a'].meta == {}
             assert t['a'].format is None
 
+        # Special case: replacing the only column can resize table
+        del t['b']
+        assert len(t) == 3
+        t['a'] = [1, 2]
+        assert len(t) == 2
+
     def test_replace_index_column(self, table_types):
         """Replace index column and generate expected exception"""
         self._setup(table_types)
@@ -1839,6 +1925,20 @@ class TestReplaceColumn(SetupData):
         with pytest.raises(ValueError) as err:
             t.replace_column('a', [1, 2, 3])
         assert err.value.args[0] == 'cannot replace a table index column'
+
+    def test_replace_column_no_copy(self):
+        t = Table([[1, 2], [3, 4]], names=['a', 'b'])
+        a = np.array([1.5, 2.5])
+        t.replace_column('a', a, copy=False)
+        assert t['a'][0] == a[0]
+        t['a'][0] = 10
+        assert t['a'][0] == a[0]
+
+    def test_replace_with_masked_col_with_units_in_qtable(self):
+        """This is a small regression from #8902"""
+        t = QTable([[1, 2], [3, 4]], names=['a', 'b'])
+        t['a'] = MaskedColumn([5, 6], unit='m')
+        assert isinstance(t['a'], u.Quantity)
 
 
 class Test__Astropy_Table__():
@@ -1867,7 +1967,7 @@ class Test__Astropy_Table__():
     def test_simple_1(self):
         """Make a SimpleTable and convert to Table, QTable with copy=False, True"""
         for table_cls in (table.Table, table.QTable):
-            col_c_class = u.Quantity if table_cls is table.QTable else table.MaskedColumn
+            col_c_class = u.Quantity if table_cls is table.QTable else table.Column
             for cpy in (False, True):
                 st = self.SimpleTable()
                 # Test putting in a non-native kwarg `extra_meta` to Table initializer
@@ -1879,7 +1979,7 @@ class Test__Astropy_Table__():
                 vals = t['c'].value if table_cls is table.QTable else t['c']
                 assert np.all(st.columns[2].value == vals)
 
-                assert isinstance(t['a'], table.MaskedColumn)
+                assert isinstance(t['a'], table.Column)
                 assert isinstance(t['b'], table.MaskedColumn)
                 assert isinstance(t['c'], col_c_class)
                 assert t['c'].unit is u.m
@@ -1894,21 +1994,100 @@ class Test__Astropy_Table__():
         st = self.SimpleTable()
         dtypes = [np.int32, np.float32, np.float16]
         names = ['a', 'b', 'c']
-        t = table.Table(st, dtype=dtypes, names=names, meta=OrderedDict([('c', 3)]))
+        meta = OrderedDict([('c', 3)])
+        t = table.Table(st, dtype=dtypes, names=names, meta=meta)
         assert t.colnames == names
         assert all(col.dtype.type is dtype
                    for col, dtype in zip(t.columns.values(), dtypes))
 
-        # The supplied meta is ignored.  This is consistent with current
-        # behavior when initializing from an existing astropy Table.
-        assert t.meta == st.meta
+        # The supplied meta is overrides the existing meta.  Changed in astropy 3.2.
+        assert t.meta != st.meta
+        assert t.meta == meta
 
     def test_kwargs_exception(self):
         """If extra kwargs provided but without initializing with a table-like
         object, exception is raised"""
         with pytest.raises(TypeError) as err:
             table.Table([[1]], extra_meta='extra!')
-        assert '__init__() got unexpected keyword argument' in str(err)
+        assert '__init__() got unexpected keyword argument' in str(err.value)
+
+
+def test_table_meta_copy():
+    """
+    Test no copy vs light (key) copy vs deep copy of table meta for different
+    situations.  #8404.
+    """
+    t = table.Table([[1]])
+    meta = {1: [1, 2]}
+
+    # Assigning meta directly implies using direct object reference
+    t.meta = meta
+    assert t.meta is meta
+
+    # Table slice implies key copy, so values are unchanged
+    t2 = t[:]
+    assert t2.meta is not t.meta  # NOT the same OrderedDict object but equal
+    assert t2.meta == t.meta
+    assert t2.meta[1] is t.meta[1]  # Value IS the list same object
+
+    # Table init with copy=False implies key copy
+    t2 = table.Table(t, copy=False)
+    assert t2.meta is not t.meta  # NOT the same OrderedDict object but equal
+    assert t2.meta == t.meta
+    assert t2.meta[1] is t.meta[1]  # Value IS the same list object
+
+    # Table init with copy=True implies deep copy
+    t2 = table.Table(t, copy=True)
+    assert t2.meta is not t.meta  # NOT the same OrderedDict object but equal
+    assert t2.meta == t.meta
+    assert t2.meta[1] is not t.meta[1]  # Value is NOT the same list object
+
+
+def test_table_meta_copy_with_meta_arg():
+    """
+    Test no copy vs light (key) copy vs deep copy of table meta when meta is
+    supplied as a table init argument.  #8404.
+    """
+    meta = {1: [1, 2]}
+    meta2 = {2: [3, 4]}
+    t = table.Table([[1]], meta=meta, copy=False)
+    assert t.meta is meta
+
+    t = table.Table([[1]], meta=meta)  # default copy=True
+    assert t.meta is not meta
+    assert t.meta == meta
+
+    # Test initializing from existing table with meta with copy=False
+    t2 = table.Table(t, meta=meta2, copy=False)
+    assert t2.meta is meta2
+    assert t2.meta != t.meta  # Change behavior in #8404
+
+    # Test initializing from existing table with meta with default copy=True
+    t2 = table.Table(t, meta=meta2)
+    assert t2.meta is not meta2
+    assert t2.meta != t.meta  # Change behavior in #8404
+
+    # Table init with copy=True and empty dict meta gets that empty dict
+    t2 = table.Table(t, copy=True, meta={})
+    assert t2.meta == {}
+
+    # Table init with copy=True and kwarg meta=None gets the original table dict.
+    # This is a somewhat ambiguous case because it could be interpreted as the
+    # user wanting NO meta set on the output.  This could be implemented by inspecting
+    # call args.
+    t2 = table.Table(t, copy=True, meta=None)
+    assert t2.meta == t.meta
+
+    # Test initializing empty table with meta with copy=False
+    t = table.Table(meta=meta, copy=False)
+    assert t.meta is meta
+    assert t.meta[1] is meta[1]
+
+    # Test initializing empty table with meta with default copy=True (deepcopy meta)
+    t = table.Table(meta=meta)
+    assert t.meta is not meta
+    assert t.meta == meta
+    assert t.meta[1] is not meta[1]
 
 
 def test_replace_column_qtable():
@@ -2105,3 +2284,146 @@ def test_qtable_read_for_ipac_table_with_char_columns():
     t1.write(out, format="ascii.ipac")
     t2 = table.QTable.read(out.getvalue(), format="ascii.ipac", guess=False)
     assert t2["B"].unit is None
+
+
+def test_create_table_from_final_row():
+    """Regression test for issue #8422: passing the last row of a table into
+    Table should return a new table containing that row."""
+    t1 = table.Table([(1, 2)], names=['col'])
+    row = t1[-1]
+    t2 = table.Table(row)['col']
+    assert t2[0] == 2
+
+
+def test_key_values_in_as_array():
+    # Test for cheking column slicing using key_values in Table.as_array()
+    data_rows = [(1, 2.0, 'x'),
+                 (4, 5.0, 'y'),
+                 (5, 8.2, 'z')]
+    # Creating a table with three columns
+    t1 = table.Table(rows=data_rows, names=('a', 'b', 'c'),
+                     meta={'name': 'first table'},
+                     dtype=('i4', 'f8', 'S1'))
+    # Values of sliced column a,b is stored in a numpy array
+    a = np.array([(1, 2.), (4, 5.), (5, 8.2)],
+                 dtype=[('a', '<i4'), ('b', '<f8')])
+    # Values fo sliced column c is stored in a numpy array
+    b = np.array([(b'x',), (b'y',), (b'z',)], dtype=[('c', 'S1')])
+    # Comparing initialised array with sliced array using Table.as_array()
+    assert np.array_equal(a, t1.as_array(names=['a', 'b']))
+    assert np.array_equal(b, t1.as_array(names=['c']))
+
+
+def test_tolist():
+    t = table.Table([[1, 2, 3], [1.1, 2.2, 3.3], [b'foo', b'bar', b'hello']],
+                    names=('a', 'b', 'c'))
+    assert t['a'].tolist() == [1, 2, 3]
+    assert_array_equal(t['b'].tolist(), [1.1, 2.2, 3.3])
+    assert t['c'].tolist() == ['foo', 'bar', 'hello']
+
+    assert isinstance(t['a'].tolist()[0], int)
+    assert isinstance(t['b'].tolist()[0], float)
+    assert isinstance(t['c'].tolist()[0], str)
+
+    t = table.Table([[[1, 2], [3, 4]],
+                     [[b'foo', b'bar'], [b'hello', b'world']]],
+                    names=('a', 'c'))
+
+    assert t['a'].tolist() == [[1, 2], [3, 4]]
+    assert t['c'].tolist() == [['foo', 'bar'], ['hello', 'world']]
+    assert isinstance(t['a'].tolist()[0][0], int)
+    assert isinstance(t['c'].tolist()[0][0], str)
+
+
+def test_broadcasting_8933():
+    """Explicitly check re-work of code related to broadcasting in #8933"""
+    t = table.Table([[1, 2]])  # Length=2 table
+    t['a'] = [[3, 4]]  # Can broadcast if ndim > 1 and shape[0] == 1
+    t['b'] = 5
+    t['c'] = [1]  # Treat as broadcastable scalar, not length=1 array (which would fail)
+    assert np.all(t['a'] == [[3, 4], [3, 4]])
+    assert np.all(t['b'] == [5, 5])
+    assert np.all(t['c'] == [1, 1])
+
+    # Test that broadcasted column is writeable
+    t['c'][1] = 10
+    assert np.all(t['c'] == [1, 10])
+
+
+def test_custom_masked_column_in_nonmasked_table():
+    """Test the refactor and change in column upgrades introduced
+    in 95902650f.  This fixes a regression introduced by #8789
+    (Change behavior of Table regarding masked columns)."""
+    class MyMaskedColumn(table.MaskedColumn):
+        pass
+
+    class MySubMaskedColumn(MyMaskedColumn):
+        pass
+
+    class MyColumn(table.Column):
+        pass
+
+    class MySubColumn(MyColumn):
+        pass
+
+    class MyTable(table.Table):
+        Column = MyColumn
+        MaskedColumn = MyMaskedColumn
+
+    a = table.Column([1])
+    b = table.MaskedColumn([2], mask=[True])
+    c = MyMaskedColumn([3], mask=[True])
+    d = MySubColumn([4])
+    e = MySubMaskedColumn([5], mask=[True])
+
+    # Two different pathways for making table
+    t1 = MyTable([a, b, c, d, e], names=['a', 'b', 'c', 'd', 'e'])
+    t2 = MyTable()
+    t2['a'] = a
+    t2['b'] = b
+    t2['c'] = c
+    t2['d'] = d
+    t2['e'] = e
+
+    for t in (t1, t2):
+        assert type(t['a']) is MyColumn
+        assert type(t['b']) is MyMaskedColumn  # upgrade
+        assert type(t['c']) is MyMaskedColumn
+        assert type(t['d']) is MySubColumn
+        assert type(t['e']) is MySubMaskedColumn  # sub-class not downgraded
+
+
+def test_init_with_list_of_masked_arrays():
+    """Test the fix for #8977"""
+    m0 = np.ma.array([0, 1, 2], mask=[True, False, True])
+    m1 = np.ma.array([3, 4, 5], mask=[False, True, False])
+    mc = [m0, m1]
+
+    # Test _init_from_list
+    t = table.Table([mc], names=['a'])
+
+    # Test add_column
+    t['b'] = [m1, m0]
+
+    assert t['a'].shape == (2, 3)
+    assert np.all(t['a'][0] == m0)
+    assert np.all(t['a'][1] == m1)
+    assert np.all(t['a'][0].mask == m0.mask)
+    assert np.all(t['a'][1].mask == m1.mask)
+
+    assert t['b'].shape == (2, 3)
+    assert np.all(t['b'][0] == m1)
+    assert np.all(t['b'][1] == m0)
+    assert np.all(t['b'][0].mask == m1.mask)
+    assert np.all(t['b'][1].mask == m0.mask)
+
+
+def test_data_to_col_convert_strategy():
+    """Test the update to how data_to_col works (#8972), using the regression
+    example from #8971.
+    """
+    t = table.Table([[0, 1]])
+    t['a'] = 1
+    t['b'] = np.int64(2)  # Failed previously
+    assert np.all(t['a'] == [1, 1])
+    assert np.all(t['b'] == [2, 2])

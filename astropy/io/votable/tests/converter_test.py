@@ -1,7 +1,6 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
 
-
 import io
 
 # THIRD-PARTY
@@ -26,7 +25,7 @@ def test_invalid_arraysize():
 
 
 def test_oversize_char():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     with catch_warnings(exceptions.W47) as w:
         field = tree.Field(
             None, name='c', datatype='char',
@@ -40,7 +39,7 @@ def test_oversize_char():
 
 
 def test_char_mask():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='char',
         config=config)
@@ -49,7 +48,7 @@ def test_char_mask():
 
 
 def test_oversize_unicode():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     with catch_warnings(exceptions.W46) as w:
         field = tree.Field(
             None, name='c2', datatype='unicodeChar',
@@ -61,7 +60,7 @@ def test_oversize_unicode():
 
 
 def test_unicode_mask():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='unicodeChar',
         config=config)
@@ -71,7 +70,7 @@ def test_unicode_mask():
 
 @raises(exceptions.E02)
 def test_wrong_number_of_elements():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='int', arraysize='2x3*',
         config=config)
@@ -81,7 +80,7 @@ def test_wrong_number_of_elements():
 
 @raises(ValueError)
 def test_float_mask():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='float',
         config=config)
@@ -91,7 +90,7 @@ def test_float_mask():
 
 
 def test_float_mask_permissive():
-    config = {'pedantic': False}
+    config = {'verify': 'ignore'}
     field = tree.Field(
         None, name='c', datatype='float',
         config=config)
@@ -101,7 +100,7 @@ def test_float_mask_permissive():
 
 @raises(exceptions.E02)
 def test_complex_array_vararray():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='floatComplex', arraysize='2x3*',
         config=config)
@@ -110,7 +109,7 @@ def test_complex_array_vararray():
 
 
 def test_complex_array_vararray2():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='floatComplex', arraysize='2x3*',
         config=config)
@@ -120,7 +119,7 @@ def test_complex_array_vararray2():
 
 
 def test_complex_array_vararray3():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='doubleComplex', arraysize='2x3*',
         config=config)
@@ -131,7 +130,7 @@ def test_complex_array_vararray3():
 
 
 def test_complex_vararray():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='doubleComplex', arraysize='*',
         config=config)
@@ -143,7 +142,7 @@ def test_complex_vararray():
 
 @raises(exceptions.E03)
 def test_complex():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='doubleComplex',
         config=config)
@@ -153,7 +152,7 @@ def test_complex():
 
 @raises(exceptions.E04)
 def test_bit():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='bit',
         config=config)
@@ -162,7 +161,7 @@ def test_bit():
 
 
 def test_bit_mask():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     with catch_warnings(exceptions.W39) as w:
         field = tree.Field(
             None, name='c', datatype='bit',
@@ -174,7 +173,7 @@ def test_bit_mask():
 
 @raises(exceptions.E05)
 def test_boolean():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='boolean',
         config=config)
@@ -183,7 +182,7 @@ def test_boolean():
 
 
 def test_boolean_array():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='boolean', arraysize='*',
         config=config)
@@ -194,7 +193,7 @@ def test_boolean_array():
 
 @raises(exceptions.E06)
 def test_invalid_type():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
     field = tree.Field(
         None, name='c', datatype='foobar',
         config=config)
@@ -202,7 +201,7 @@ def test_invalid_type():
 
 
 def test_precision():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
 
     field = tree.Field(
         None, name='c', datatype='float', precision="E4",
@@ -219,7 +218,7 @@ def test_precision():
 
 @raises(exceptions.W51)
 def test_integer_overflow():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
 
     field = tree.Field(
         None, name='c', datatype='int', config=config)
@@ -228,7 +227,7 @@ def test_integer_overflow():
 
 
 def test_float_default_precision():
-    config = {'pedantic': True}
+    config = {'verify': 'exception'}
 
     field = tree.Field(
         None, name='c', datatype='float', arraysize="4",

@@ -458,9 +458,9 @@ def get_pkg_data_fileobj(data_name, package=None, encoding=None, cache=True):
             except urllib.error.URLError:
                 pass
         else:
-            urls = '\n'.join('  - {0}'.format(url) for url in all_urls)
-            raise urllib.error.URLError("Failed to download {0} from the following "
-                                        "repositories:\n\n{1}".format(data_name, urls))
+            urls = '\n'.join(f'  - {url}' for url in all_urls)
+            raise urllib.error.URLError("Failed to download {} from the following "
+                                        "repositories:\n\n{}".format(data_name, urls))
 
 
 def get_pkg_data_filename(data_name, package=None, show_progress=True,
@@ -565,9 +565,9 @@ def get_pkg_data_filename(data_name, package=None, show_progress=True,
                                          timeout=remote_timeout)
                 except urllib.error.URLError:
                     pass
-            urls = '\n'.join('  - {0}'.format(url) for url in all_urls)
-            raise urllib.error.URLError("Failed to download {0} from the following "
-                                        "repositories:\n\n{1}\n\n".format(data_name, urls))
+            urls = '\n'.join(f'  - {url}' for url in all_urls)
+            raise urllib.error.URLError("Failed to download {} from the following "
+                                        "repositories:\n\n{}\n\n".format(data_name, urls))
 
         else:
             return hashfn
@@ -588,9 +588,9 @@ def get_pkg_data_filename(data_name, package=None, show_progress=True,
                                          timeout=remote_timeout)
                 except urllib.error.URLError:
                     pass
-            urls = '\n'.join('  - {0}'.format(url) for url in all_urls)
-            raise urllib.error.URLError("Failed to download {0} from the following "
-                                        "repositories:\n\n{1}".format(data_name, urls))
+            urls = '\n'.join(f'  - {url}' for url in all_urls)
+            raise urllib.error.URLError("Failed to download {} from the following "
+                                        "repositories:\n\n{}".format(data_name, urls))
 
 
 def get_pkg_data_contents(data_name, package=None, encoding=None, cache=True):
@@ -706,7 +706,7 @@ def get_pkg_data_filenames(datadir, package=None, pattern='*'):
     tests::
 
         >>> from astropy.utils.data import get_pkg_data_filenames
-        >>> for fn in get_pkg_data_filenames('maps', 'astropy.wcs.tests',
+        >>> for fn in get_pkg_data_filenames('data/maps', 'astropy.wcs.tests',
         ...                                  '*.hdr'):
         ...     with open(fn) as f:
         ...         fcontents = f.read()
@@ -778,7 +778,7 @@ def get_pkg_data_fileobjs(datadir, package=None, pattern='*', encoding=None):
     tests::
 
         >>> from astropy.utils.data import get_pkg_data_filenames
-        >>> for fd in get_pkg_data_fileobjs('maps', 'astropy.wcs.tests',
+        >>> for fd in get_pkg_data_fileobjs('data/maps', 'astropy.wcs.tests',
         ...                                 '*.hdr'):
         ...     fcontents = fd.read()
         ...
@@ -939,8 +939,8 @@ def check_free_space_in_dir(path, size):
     space = get_free_space_in_dir(path)
     if space < size:
         raise OSError(
-            "Not enough free space in '{0}' "
-            "to download a {1} file".format(
+            "Not enough free space in '{}' "
+            "to download a {} file".format(
                 path, human_file_size(size)))
 
 
@@ -1044,7 +1044,7 @@ def download_file(remote_url, cache=False, show_progress=True, timeout=None):
             else:
                 progress_stream = io.StringIO()
 
-            dlmsg = "Downloading {0}".format(remote_url)
+            dlmsg = f"Downloading {remote_url}"
             with ProgressBarOrSpinner(size, dlmsg, file=progress_stream) as p:
                 with NamedTemporaryFile(delete=False) as f:
                     try:

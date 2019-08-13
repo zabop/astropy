@@ -75,6 +75,60 @@ class TestLogUnitCreation:
         with pytest.raises(ValueError):
             lu_cls(physical_unit, u.m)
 
+    def test_lshift_magnitude(self):
+        mag = 1. << u.ABmag
+        assert isinstance(mag, u.Magnitude)
+        assert mag.unit == u.ABmag
+        assert mag.value == 1.
+        # same test for an array, which should produce a view
+        a2 = np.arange(10.)
+        q2 = a2 << u.ABmag
+        assert isinstance(q2, u.Magnitude)
+        assert q2.unit == u.ABmag
+        assert np.all(q2.value == a2)
+        a2[9] = 0.
+        assert np.all(q2.value == a2)
+        # a different magnitude unit
+        mag = 10. << u.STmag
+        assert isinstance(mag, u.Magnitude)
+        assert mag.unit == u.STmag
+        assert mag.value == 10.
+
+    def test_ilshift_magnitude(self):
+        # test in-place operation and conversion
+        mag_fnu_cgs = u.mag(u.erg/u.s/u.cm**2/u.Hz)
+        m = np.arange(10.0) * u.mag(u.Jy)
+        jy = m.physical
+        m2 = m << mag_fnu_cgs
+        assert np.all(m2 == m.to(mag_fnu_cgs))
+        m2 = m
+        m <<= mag_fnu_cgs
+        assert m is m2  # Check it was done in-place!
+        assert np.all(m.value == m2.value)
+        assert m.unit == mag_fnu_cgs
+        # Check it works if equivalencies are in-place.
+        with u.add_enabled_equivalencies(u.spectral_density(5500*u.AA)):
+            st = jy.to(u.ST)
+            m <<= u.STmag
+
+        assert m is m2
+        assert_quantity_allclose(m.physical, st)
+        assert m.unit == u.STmag
+
+    def test_lshift_errors(self):
+        m = np.arange(10.0) * u.mag(u.Jy)
+        with pytest.raises(u.UnitsError):
+            m << u.STmag
+
+        with pytest.raises(u.UnitsError):
+            m << u.Jy
+
+        with pytest.raises(u.UnitsError):
+            m <<= u.STmag
+
+        with pytest.raises(u.UnitsError):
+            m <<= u.Jy
+
 
 def test_predefined_magnitudes():
     assert_quantity_allclose((-21.1*u.STmag).physical,
@@ -100,11 +154,10 @@ def test_predefined_reinitialisation():
 
 def test_predefined_string_roundtrip():
     """Ensure round-tripping; see #5015"""
-    with u.magnitude_zero_points.enable():
-        assert u.Unit(u.STmag.to_string()) == u.STmag
-        assert u.Unit(u.ABmag.to_string()) == u.ABmag
-        assert u.Unit(u.M_bol.to_string()) == u.M_bol
-        assert u.Unit(u.m_bol.to_string()) == u.m_bol
+    assert u.Unit(u.STmag.to_string()) == u.STmag
+    assert u.Unit(u.ABmag.to_string()) == u.ABmag
+    assert u.Unit(u.M_bol.to_string()) == u.M_bol
+    assert u.Unit(u.m_bol.to_string()) == u.m_bol
 
 
 def test_inequality():
@@ -234,6 +287,14 @@ class TestLogUnitConversion:
     def test_unit_multiple_possible_equivalencies(self):
         lu = u.mag(u.Jy)
         assert lu.is_equivalent(pu_sample)
+
+    def test_magnitude_conversion_fails_message(self):
+        """Check that "dimensionless" magnitude units include a message in their
+        exception text suggesting a possible cause of the problem.
+        """
+        with pytest.raises(u.UnitConversionError) as excinfo:
+            (10*u.ABmag - 2*u.ABmag).to(u.nJy)
+        assert "Did you perhaps subtract magnitudes so the unit got lost?" in str(excinfo.value)
 
 
 class TestLogUnitArithmetic:
@@ -523,8 +584,8 @@ def test_quantity_decomposition():
 
 class TestLogQuantityViews:
     def setup(self):
-        self.lq = u.Magnitude(np.arange(10.) * u.Jy)
-        self.lq2 = u.Magnitude(np.arange(5.))
+        self.lq = u.Magnitude(np.arange(1., 10.) * u.Jy)
+        self.lq2 = u.Magnitude(np.arange(1., 5.))
 
     def test_value_view(self):
         lq_value = self.lq.value
@@ -832,30 +893,7 @@ class TestLogQuantityMethods:
 
     @pytest.mark.parametrize('method', ('prod', 'cumprod'))
     def test_never_ok(self, method):
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             getattr(self.mJy, method)()
-
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             getattr(self.m1, method)()
-
-
-class TestLogQuantityUfuncs:
-    """Spot checks on ufuncs."""
-
-    def setup(self):
-        self.mJy = np.arange(1., 5.).reshape(2, 2) * u.mag(u.Jy)
-        self.m1 = np.arange(1., 5.5, 0.5).reshape(3, 3) * u.mag()
-        self.mags = (self.mJy, self.m1)
-
-    def test_power(self):
-        assert np.all(np.power(self.mJy, 0.) == 1.)
-        assert np.all(np.power(self.m1, 1.) == self.m1)
-        assert np.all(np.power(self.mJy, 1.) == self.mJy)
-        assert np.all(np.power(self.m1, 2.) == self.m1 ** 2)
-        with pytest.raises(u.UnitsError):
-            np.power(self.mJy, 2.)
-
-    def test_not_implemented_with_physical_unit(self):
-        with pytest.raises(u.UnitsError):
-            np.square(self.mJy)
-        assert np.all(np.square(self.m1) == self.m1 ** 2)

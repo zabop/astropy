@@ -2,10 +2,8 @@
 
 import os
 
-from astropy.utils.misc import InheritDocstrings
 
-
-class _FormatterMeta(InheritDocstrings):
+class _FormatterMeta(type):
     registry = {}
 
     def __new__(mcls, name, bases, members):
@@ -53,7 +51,7 @@ class Base(metaclass=_FormatterMeta):
         """
 
         raise NotImplementedError(
-            "Can not parse {0}".format(cls.__name__))
+            f"Can not parse {cls.__name__}")
 
     @classmethod
     def to_string(cls, u):
@@ -62,7 +60,7 @@ class Base(metaclass=_FormatterMeta):
         """
 
         raise NotImplementedError(
-            "Can not output in {0} format".format(cls.__name__))
+            f"Can not output in {cls.__name__} format")
 
     @classmethod
     def _add_tab_header(cls, name):

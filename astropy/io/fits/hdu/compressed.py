@@ -160,7 +160,7 @@ class CompImageHeader(Header):
             keyword, index = key, None
 
         if key not in self:
-            raise KeyError("Keyword {!r} not found.".format(key))
+            raise KeyError(f"Keyword {key!r} not found.")
 
         super().__delitem__(key)
 
@@ -344,7 +344,7 @@ class CompImageHeader(Header):
                 is_naxisn = index > 0
 
         if is_naxisn:
-            return 'ZNAXIS{}'.format(index)
+            return f'ZNAXIS{index}'
 
         # If the keyword does not need to be remapped then just return the
         # original keyword
@@ -439,7 +439,7 @@ class CompImageHDU(BinTableHDU):
 
         quantize_method : int, optional
             Floating point quantization dithering method; can be either
-            ``NO_DITHER`` (-1), ``SUBTRACTIVE_DITHER_1`` (1; default), or
+            ``NO_DITHER`` (-1; default), ``SUBTRACTIVE_DITHER_1`` (1), or
             ``SUBTRACTIVE_DITHER_2`` (2); see note below
 
         dither_seed : int, optional
@@ -1633,7 +1633,7 @@ class CompImageHDU(BinTableHDU):
             # Convert the unsigned array to signed
             self.data = np.array(
                 self.data - _unsigned_zero(self.data.dtype),
-                dtype='=i{}'.format(self.data.dtype.itemsize))
+                dtype=f'=i{self.data.dtype.itemsize}')
             should_swap = False
         else:
             should_swap = not self.data.dtype.isnative

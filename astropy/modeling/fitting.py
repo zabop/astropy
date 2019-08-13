@@ -112,7 +112,6 @@ def fitter_unit_support(func):
                 # We now combine any instance-level input equivalencies with user
                 # specified ones at call-time.
 
-
                 input_units_equivalencies = _combine_equivalency_dict(
                     model.inputs, equivalencies, model.input_units_equivalencies)
 
@@ -151,12 +150,11 @@ def fitter_unit_support(func):
                     ydata = np.asarray(y)
 
                 if z is not None:
-                    if isinstance(y, Quantity):
+                    if isinstance(z, Quantity):
                         add_back_units = True
                         zdata = z.value
                     else:
                         zdata = np.asarray(z)
-
                 # We run the fitting
                 if z is None:
                     model_new = func(self, model, xdata, ydata, **kwargs)
@@ -450,7 +448,7 @@ class LinearLSQFitter(metaclass=_FitterMeta):
         # failures below. Ultimately, np.linalg.lstsq can't handle >2D matrices,
         # so just raise a slightly more informative error when this happens:
         if lhs.ndim > 2:
-            raise ValueError('{0} gives unsupported >2D derivative matrix for '
+            raise ValueError('{} gives unsupported >2D derivative matrix for '
                              'this x/y'.format(type(model_copy).__name__))
 
         # Subtract any terms fixed by the user from (a copy of) the RHS, in
@@ -641,13 +639,12 @@ class FittingWithOutlierRemoval:
         else:
             if not hasattr(self.fitter, 'supports_masked_input') or \
                self.fitter.supports_masked_input is not True:
-                raise ValueError("{0} cannot fit model sets with masked "
+                raise ValueError("{} cannot fit model sets with masked "
                                  "values".format(type(self.fitter).__name__))
 
             # Fitters use their input model's model_set_axis to determine how
             # their input data are stacked:
             model_set_axis = model.model_set_axis
-
         # Construct input co-ordinate tuples for fitters & models that are
         # appropriate for the dimensionality being fitted:
         if z is None:
@@ -875,7 +872,6 @@ class LevMarLSQFitter(metaclass=_FitterMeta):
 
         model_copy = _validate_model(model, self.supported_constraints)
         farg = (model_copy, weights, ) + _convert_input(x, y, z)
-
         if model_copy.fit_deriv is None or estimate_jacobian:
             dfunc = None
         else:
@@ -1307,6 +1303,7 @@ def _fitter_to_model_params(model, fps):
     has_tied = any(model.tied.values())
     has_fixed = any(model.fixed.values())
     has_bound = any(b != (None, None) for b in model.bounds.values())
+    parameters = model.parameters
 
     if not (has_tied or has_fixed or has_bound):
         # We can just assign directly
@@ -1336,7 +1333,7 @@ def _fitter_to_model_params(model, fps):
             if _max is not None:
                 values = np.fmin(values, _max)
 
-        model.parameters[slice_] = values
+        parameters[slice_] = values
         offset += size
 
     # This has to be done in a separate loop due to how tied parameters are
@@ -1348,7 +1345,8 @@ def _fitter_to_model_params(model, fps):
             if model.tied[name]:
                 value = model.tied[name](model)
                 slice_ = param_metrics[name]['slice']
-                model.parameters[slice_] = value
+                parameters[slice_] = value
+    model._array_to_parameters()
 
 
 def _model_to_fit_params(model):
@@ -1453,7 +1451,7 @@ def populate_entry_points(entry_points):
         else:
             if not inspect.isclass(entry_point):
                 warnings.warn(AstropyUserWarning(
-                    'Modeling entry point {0} expected to be a '
+                    'Modeling entry point {} expected to be a '
                     'Class.' .format(name)))
             else:
                 if issubclass(entry_point, Fitter):
@@ -1462,7 +1460,7 @@ def populate_entry_points(entry_points):
                     __all__.append(name)
                 else:
                     warnings.warn(AstropyUserWarning(
-                        'Modeling entry point {0} expected to extend '
+                        'Modeling entry point {} expected to extend '
                         'astropy.modeling.Fitter' .format(name)))
 
 

@@ -16,14 +16,23 @@ import threading
 import warnings
 import weakref
 from contextlib import contextmanager, suppress
+from functools import wraps
+
 from astropy.utils import data
 
 from distutils.version import LooseVersion
 
 import numpy as np
 
-from astropy.utils import wraps
 from astropy.utils.exceptions import AstropyUserWarning
+
+try:
+    # Support the Python 3.6 PathLike ABC where possible
+    from os import PathLike
+    path_like = (str, PathLike)
+except ImportError:
+    path_like = (str,)
+
 
 cmp = lambda a, b: (a > b) - (a < b)
 
@@ -115,7 +124,7 @@ class NotifierMixin:
         if self._listeners is None:
             return
 
-        method_name = '_update_{0}'.format(notification)
+        method_name = f'_update_{notification}'
         for listener in self._listeners.valuerefs():
             # Use valuerefs instead of itervaluerefs; see
             # https://github.com/astropy/astropy/issues/4015
@@ -282,7 +291,7 @@ def decode_ascii(s):
                           'file header and have been replaced by "?" '
                           'characters', AstropyUserWarning)
             s = s.decode('ascii', errors='replace')
-            return s.replace(u'\ufffd', '?')
+            return s.replace('\ufffd', '?')
     elif (isinstance(s, np.ndarray) and
           issubclass(s.dtype.type, np.bytes_)):
         # np.char.encode/decode annoyingly don't preserve the type of the
@@ -582,7 +591,7 @@ def _array_from_file(infile, dtype, count):
         # their underlying file object, instead of the decompressed bytes
         read_size = np.dtype(dtype).itemsize * count
         s = infile.read(read_size)
-        array = np.frombuffer(s, dtype=dtype, count=count)
+        array = np.ndarray(buffer=s, dtype=dtype, shape=(count,))
         # copy is needed because np.frombuffer returns a read-only view of the
         # underlying buffer
         array = array.copy()
@@ -764,7 +773,7 @@ def _words_group(input, strlen):
     words = []
     nblanks = input.count(' ')
     nmax = max(nblanks, len(input) // strlen + 1)
-    arr = np.frombuffer((input + ' ').encode('utf8'), dtype=(bytes, 1))
+    arr = np.frombuffer((input + ' ').encode('utf8'), dtype='S1')
 
     # locations of the blanks
     blank_loc = np.nonzero(arr == b' ')[0]
@@ -876,7 +885,7 @@ def get_testdata_filepath(filename):
         The path to the requested file.
     """
     return data.get_pkg_data_filename(
-        'io/fits/tests/data/{}'.format(filename), 'astropy')
+        f'io/fits/tests/data/{filename}', 'astropy')
 
 
 def _rstrip_inplace(array):
@@ -901,7 +910,7 @@ def _rstrip_inplace(array):
     # View the array as appropriate integers. The last dimension will
     # equal the number of characters in each string.
     bpc = 1 if dt.kind == 'S' else 4
-    dt_int = "{0}{1}u{2}".format(dt.itemsize // bpc, dt.byteorder, bpc)
+    dt_int = "({},){}u{}".format(dt.itemsize // bpc, dt.byteorder, bpc)
     b = array.view(dt_int, np.ndarray)
     # For optimal speed, work in chunks of the internal ufunc buffer size.
     bufsize = np.getbufsize()

@@ -5,6 +5,8 @@ import contextlib
 import pathlib
 import re
 import sys
+import inspect
+import os
 
 from collections import OrderedDict
 from operator import itemgetter
@@ -14,7 +16,8 @@ import numpy as np
 
 __all__ = ['register_reader', 'register_writer', 'register_identifier',
            'identify_format', 'get_reader', 'get_writer', 'read', 'write',
-           'get_formats', 'IORegistryError', 'delay_doc_updates']
+           'get_formats', 'IORegistryError', 'delay_doc_updates',
+           'UnifiedReadWriteMethod', 'UnifiedReadWrite']
 
 
 __doctest_skip__ = ['register_identifier']
@@ -196,10 +199,13 @@ def _update__doc__(data_class, readwrite):
 
     # Depending on Python version and whether class_readwrite_func is
     # an instancemethod or classmethod, one of the following will work.
-    try:
-        class_readwrite_func.__doc__ = '\n'.join(lines)
-    except AttributeError:
-        class_readwrite_func.__func__.__doc__ = '\n'.join(lines)
+    if isinstance(class_readwrite_func, UnifiedReadWrite):
+        class_readwrite_func.__class__.__doc__ = '\n'.join(lines)
+    else:
+        try:
+            class_readwrite_func.__doc__ = '\n'.join(lines)
+        except AttributeError:
+            class_readwrite_func.__func__.__doc__ = '\n'.join(lines)
 
 
 def register_reader(data_format, data_class, function, force=False):
@@ -223,7 +229,7 @@ def register_reader(data_format, data_class, function, force=False):
     if not (data_format, data_class) in _readers or force:
         _readers[(data_format, data_class)] = function
     else:
-        raise IORegistryError("Reader for format '{0}' and class '{1}' is "
+        raise IORegistryError("Reader for format '{}' and class '{}' is "
                               'already defined'
                               ''.format(data_format, data_class.__name__))
 
@@ -246,7 +252,7 @@ def unregister_reader(data_format, data_class):
     if (data_format, data_class) in _readers:
         _readers.pop((data_format, data_class))
     else:
-        raise IORegistryError("No reader defined for format '{0}' and class '{1}'"
+        raise IORegistryError("No reader defined for format '{}' and class '{}'"
                               ''.format(data_format, data_class.__name__))
 
     if data_class not in _delayed_docs_classes:
@@ -274,7 +280,7 @@ def register_writer(data_format, data_class, function, force=False):
     if not (data_format, data_class) in _writers or force:
         _writers[(data_format, data_class)] = function
     else:
-        raise IORegistryError("Writer for format '{0}' and class '{1}' is "
+        raise IORegistryError("Writer for format '{}' and class '{}' is "
                               'already defined'
                               ''.format(data_format, data_class.__name__))
 
@@ -297,7 +303,7 @@ def unregister_writer(data_format, data_class):
     if (data_format, data_class) in _writers:
         _writers.pop((data_format, data_class))
     else:
-        raise IORegistryError("No writer defined for format '{0}' and class '{1}'"
+        raise IORegistryError("No writer defined for format '{}' and class '{}'"
                               ''.format(data_format, data_class.__name__))
 
     if data_class not in _delayed_docs_classes:
@@ -352,7 +358,7 @@ def register_identifier(data_format, data_class, identifier, force=False):
     if not (data_format, data_class) in _identifiers or force:
         _identifiers[(data_format, data_class)] = identifier
     else:
-        raise IORegistryError("Identifier for format '{0}' and class '{1}' is "
+        raise IORegistryError("Identifier for format '{}' and class '{}' is "
                               'already defined'.format(data_format,
                                                        data_class.__name__))
 
@@ -372,8 +378,8 @@ def unregister_identifier(data_format, data_class):
     if (data_format, data_class) in _identifiers:
         _identifiers.pop((data_format, data_class))
     else:
-        raise IORegistryError("No identifier defined for format '{0}' and class"
-                              " '{1}'".format(data_format, data_class.__name__))
+        raise IORegistryError("No identifier defined for format '{}' and class"
+                              " '{}'".format(data_format, data_class.__name__))
 
 
 def identify_format(origin, data_class_required, path, fileobj, args, kwargs):
@@ -444,8 +450,8 @@ def get_reader(data_format, data_class):
     else:
         format_table_str = _get_format_table_str(data_class, 'Read')
         raise IORegistryError(
-            "No reader defined for format '{0}' and class '{1}'.\nThe "
-            "available formats are:\n{2}".format(
+            "No reader defined for format '{}' and class '{}'.\n\nThe "
+            "available formats are:\n\n{}".format(
                 data_format, data_class.__name__, format_table_str))
 
 
@@ -472,8 +478,8 @@ def get_writer(data_format, data_class):
     else:
         format_table_str = _get_format_table_str(data_class, 'Write')
         raise IORegistryError(
-            "No writer defined for format '{0}' and class '{1}'.\nThe "
-            "available formats are:\n{2}".format(
+            "No writer defined for format '{}' and class '{}'.\n\nThe "
+            "available formats are:\n\n{}".format(
                 data_format, data_class.__name__, format_table_str))
 
 
@@ -523,7 +529,7 @@ def read(cls, *args, format=None, **kwargs):
             try:
                 data = cls(data)
             except Exception:
-                raise TypeError('could not convert reader output to {0} '
+                raise TypeError('could not convert reader output to {} '
                                 'class.'.format(cls.__name__))
     finally:
         if ctx is not None:
@@ -592,10 +598,128 @@ def _get_valid_format(mode, cls, path, fileobj, args, kwargs):
         format_table_str = _get_format_table_str(cls, mode.capitalize())
         raise IORegistryError("Format could not be identified.\n"
                               "The available formats are:\n"
-                              "{0}".format(format_table_str))
+                              "{}".format(format_table_str))
     elif len(valid_formats) > 1:
         raise IORegistryError(
-            "Format is ambiguous - options are: {0}".format(
+            "Format is ambiguous - options are: {}".format(
                 ', '.join(sorted(valid_formats, key=itemgetter(0)))))
 
     return valid_formats[0]
+
+
+class UnifiedReadWrite:
+    """Base class for the worker object used in unified read() or write() methods.
+
+    This lightweight object is created for each `read()` or `write()` call
+    via ``read`` / ``write`` descriptors on the data object class.  The key
+    driver is to allow complete format-specific documentation of available
+    method options via a ``help()`` method, e.g. ``Table.read.help('fits')``.
+
+    Subclasses must define a ``__call__`` method which is what actually gets
+    called when the data object ``read()`` or ``write()`` method is called.
+
+    For the canonical example see the `~astropy.table.Table` class
+    implementation (in particular the ``connect.py`` module there).
+
+    Parameters
+    ----------
+    instance : object
+        Descriptor calling instance or None if no instance
+    cls : type
+        Descriptor calling class (either owner class or instance class)
+    method_name : str
+        Method name, either 'read' or 'write'
+    """
+    def __init__(self, instance, cls, method_name):
+        self._instance = instance
+        self._cls = cls
+        self._method_name = method_name  # 'read' or 'write'
+
+    def help(self, format=None, out=None):
+        """Output help documentation for the specified unified I/O ``format``.
+
+        By default the help output is printed to the console via ``pydoc.pager``.
+        Instead one can supplied a file handle object as ``out`` and the output
+        will be written to that handle.
+
+        Parameters
+        ----------
+        format : str
+            Unified I/O format name, e.g. 'fits' or 'ascii.ecsv'
+        out : None or file handle object
+            Output destination (default is stdout via a pager)
+        """
+        cls = self._cls
+        method_name = self._method_name
+
+        # Get reader or writer function
+        get_func = get_reader if method_name == 'read' else get_writer
+        try:
+            if format:
+                read_write_func = get_func(format, cls)
+        except IORegistryError as err:
+            reader_doc = 'ERROR: ' + str(err)
+        else:
+            if format:
+                # Format-specific
+                header = ("{}.{}(format='{}') documentation\n"
+                          .format(cls.__name__, method_name, format))
+                doc = read_write_func.__doc__
+            else:
+                # General docs
+                header = ('{}.{} general documentation\n'
+                          .format(cls.__name__, method_name))
+                doc = getattr(cls, method_name).__doc__
+
+            reader_doc = re.sub('.', '=', header)
+            reader_doc += header
+            reader_doc += re.sub('.', '=', header)
+            reader_doc += os.linesep
+            reader_doc += inspect.cleandoc(doc)
+
+        if out is None:
+            import pydoc
+            pydoc.pager(reader_doc)
+        else:
+            out.write(reader_doc)
+
+    def list_formats(self, out=None):
+        """Print a list of available formats to console (or ``out`` filehandle)
+
+        out : None or file handle object
+            Output destination (default is stdout via a pager)
+        """
+        tbl = get_formats(self._cls, self._method_name.capitalize())
+        del tbl['Data class']
+
+        if out is None:
+            tbl.pprint(max_lines=-1, max_width=-1)
+        else:
+            out.write('\n'.join(tbl.pformat(max_lines=-1, max_width=-1)))
+
+        return out
+
+
+class UnifiedReadWriteMethod:
+    """Descriptor class for creating read() and write() methods in unified I/O.
+
+    The canonical example is in the ``Table`` class, where the ``connect.py``
+    module creates subclasses of the ``UnifiedReadWrite`` class.  These have
+    custom ``__call__`` methods that do the setup work related to calling the
+    registry read() or write() functions.  With this, the ``Table`` class
+    defines read and write methods as follows::
+
+      read = UnifiedReadWriteMethod(TableRead)
+      write = UnifiedReadWriteMethod(TableWrite)
+
+    Parameters
+    ----------
+    func : `~astropy.io.registry.UnifiedReadWrite` subclass
+        Class that defines read or write functionality
+
+    """
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, instance, owner_cls):
+        return self.func(instance, owner_cls)

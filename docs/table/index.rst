@@ -32,9 +32,6 @@ Currently `astropy.table` is used when reading an ASCII table using
 `astropy.io.ascii`.  Future releases of Astropy are expected to use
 the |Table| class for other subpackages such as `astropy.io.votable` and `astropy.io.fits` .
 
-.. Warning:: Astropy 2.0 introduces an API change that affects comparison of
-   bytestring column elements in Python 3.  See
-   :ref:`bytestring-columns-python-3` for details.
 
 Getting Started
 ===============
@@ -131,7 +128,7 @@ then a formatted version appears::
 
 If you do not like the format of a particular column, you can change it::
 
-  >>> t['b'].format = '7.3f'
+  >>> t['b'].info.format = '7.3f'
   >>> print(t)
    a     b     c
          s
@@ -388,8 +385,8 @@ Implementation
 
    implementation_details.rst
 
-.. note that if this section gets too long, it should be moved to a separate 
-   doc page - see the top of performance.inc.rst for the instructions on how to do 
+.. note that if this section gets too long, it should be moved to a separate
+   doc page - see the top of performance.inc.rst for the instructions on how to do
    that
 .. include:: performance.inc.rst
 

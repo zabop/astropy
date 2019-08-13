@@ -15,7 +15,7 @@ from astropy import table
 from astropy.table.table_helpers import simple_table
 from astropy.tests.helper import catch_warnings
 from astropy.utils.exceptions import AstropyWarning, AstropyDeprecationWarning
-from astropy import units
+from astropy import units as u
 
 from .common import setup_function, teardown_function
 
@@ -399,7 +399,7 @@ def check_write_table(test_def, table, fast_writer):
     try:
         ascii.write(table, out, fast_writer=fast_writer, **test_def['kwargs'])
     except ValueError as e:  # if format doesn't have a fast writer, ignore
-        if 'not in the list of formats with fast writers' not in str(e):
+        if 'not in the list of formats with fast writers' not in str(e.value):
             raise e
         return
     print('Expected:\n{}'.format(test_def['out']))
@@ -413,7 +413,7 @@ def check_write_table_via_table(test_def, table, fast_writer):
 
     test_def = copy.deepcopy(test_def)
     if 'Writer' in test_def['kwargs']:
-        format = 'ascii.{0}'.format(test_def['kwargs']['Writer']._format_name)
+        format = 'ascii.{}'.format(test_def['kwargs']['Writer']._format_name)
         del test_def['kwargs']['Writer']
     else:
         format = 'ascii'
@@ -421,7 +421,7 @@ def check_write_table_via_table(test_def, table, fast_writer):
     try:
         table.write(out, format=format, fast_writer=fast_writer, **test_def['kwargs'])
     except ValueError as e:  # if format doesn't have a fast writer, ignore
-        if 'not in the list of formats with fast writers' not in str(e):
+        if 'not in the list of formats with fast writers' not in str(e.value):
             raise e
         return
     print('Expected:\n{}'.format(test_def['out']))
@@ -433,7 +433,7 @@ def check_write_table_via_table(test_def, table, fast_writer):
 @pytest.mark.parametrize("fast_writer", [True, False])
 def test_write_table(fast_writer):
     table = ascii.get_reader(Reader=ascii.Daophot)
-    data = table.read('t/daophot.dat')
+    data = table.read('data/daophot.dat')
 
     for test_def in test_defs:
         check_write_table(test_def, data, fast_writer)
@@ -464,7 +464,7 @@ def test_write_fill_masked_different(fast_writer):
 def test_write_no_data_ipac(fast_writer):
     """Write an IPAC table that contains no data."""
     table = ascii.get_reader(Reader=ascii.Ipac)
-    data = table.read('t/no_data_ipac.dat')
+    data = table.read('data/no_data_ipac.dat')
 
     for test_def in test_defs_no_data:
         check_write_table(test_def, data, fast_writer)
@@ -476,7 +476,7 @@ def test_write_invalid_toplevel_meta_ipac():
     specified) metadata stored in the top-level metadata and therefore should
     raise a warning, and check that the warning has been raised"""
     table = ascii.get_reader(Reader=ascii.Ipac)
-    data = table.read('t/no_data_ipac.dat')
+    data = table.read('data/no_data_ipac.dat')
     data.meta['blah'] = 'extra'
 
     with catch_warnings(AstropyWarning) as ASwarn:
@@ -492,7 +492,7 @@ def test_write_invalid_keyword_meta_ipac():
     of the metadata but with invalid format and therefore should raise a
     warning, and check that the warning has been raised"""
     table = ascii.get_reader(Reader=ascii.Ipac)
-    data = table.read('t/no_data_ipac.dat')
+    data = table.read('data/no_data_ipac.dat')
     data.meta['keywords']['blah'] = 'invalid'
 
     with catch_warnings(AstropyWarning) as ASwarn:
@@ -506,7 +506,7 @@ def test_write_valid_meta_ipac():
     """Write an IPAC table that contains no data and has *correctly* specified
     metadata.  No warnings should be issued"""
     table = ascii.get_reader(Reader=ascii.Ipac)
-    data = table.read('t/no_data_ipac.dat')
+    data = table.read('data/no_data_ipac.dat')
     data.meta['keywords']['blah'] = {'value': 'invalid'}
 
     with catch_warnings(AstropyWarning) as ASwarn:
@@ -582,8 +582,8 @@ b & 2
     ascii.write(t, out, format='aastex', latexdict=latexdict)
     assert out.getvalue() == expected
     # use unit attribute instead
-    t['NUV exp.time'].unit = units.s
-    t['date'].unit = units.yr
+    t['NUV exp.time'].unit = u.s
+    t['date'].unit = u.yr
     out = StringIO()
     ascii.write(t, out, format='aastex', latexdict=ascii.latexdicts['AA'])
     assert out.getvalue() == expected.replace(
@@ -750,3 +750,35 @@ def test_roundtrip_masked(fmt_name_class):
     for col, col2 in zip(t.itercols(), t2.itercols()):
         assert col.dtype.kind == col2.dtype.kind
         assert np.all(col == col2)
+
+
+@pytest.mark.parametrize("fast_writer", [True, False])
+def test_write_newlines(fast_writer, tmpdir):
+
+    # Regression test for https://github.com/astropy/astropy/issues/5126
+    # On windows, when writing to a filename (not e.g. StringIO), newlines were
+    # \r\r\n instead of \r\n.
+
+    filename = tmpdir.join('test').strpath
+
+    t = table.Table([['a', 'b', 'c']], names=['col'])
+    ascii.write(t, filename, fast_writer=fast_writer)
+
+    with open(filename, 'r', newline='') as f:
+        content = f.read()
+
+    assert content == os.linesep.join(['col', 'a', 'b', 'c']) + os.linesep
+
+
+@pytest.mark.parametrize("fast_writer", [True, False])
+def test_write_formatted_mixin(fast_writer):
+    """
+    Test fix for #8680 where writing a QTable with a quantity mixin generates
+    an exception if a format is specified.
+    """
+    out = StringIO()
+    t = table.QTable([[1, 2], [1, 2] * u.m], names=['a', 'b'])
+    ascii.write(t, out, fast_writer=fast_writer, formats={'a': '%02d', 'b': '%.2f'})
+    assert out.getvalue().splitlines() == ['a b',
+                                           '01 1.00',
+                                           '02 2.00']

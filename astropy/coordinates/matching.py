@@ -74,6 +74,9 @@ def match_coordinates_3d(matchcoord, catalogcoord, nthneighbor=1, storekdtree='k
     matchxyz = matchcoord.cartesian.xyz.to(catunit)
 
     matchflatxyz = matchxyz.reshape((3, np.prod(matchxyz.shape) // 3))
+    # Querying NaN returns garbage
+    if np.isnan(matchflatxyz.value).any():
+        raise ValueError("Matching coordinates cannot contain NaN entries.")
     dist, idx = kdt.query(matchflatxyz.T, nthneighbor)
 
     if nthneighbor > 1:  # query gives 1D arrays if k=1, 2D arrays otherwise
@@ -440,7 +443,7 @@ def _get_cartesian_kdtree(coord, attrname_or_kdt='kdtree', forceunit=None):
     if isinstance(attrname_or_kdt, str):
         kdt = coord.cache.get(attrname_or_kdt, None)
         if kdt is not None and not isinstance(kdt, KDTree):
-            raise TypeError('The `attrname_or_kdt` "{0}" is not a scipy KD tree!'.format(attrname_or_kdt))
+            raise TypeError(f'The `attrname_or_kdt` "{attrname_or_kdt}" is not a scipy KD tree!')
     elif isinstance(attrname_or_kdt, KDTree):
         kdt = attrname_or_kdt
         attrname_or_kdt = None
@@ -457,6 +460,9 @@ def _get_cartesian_kdtree(coord, attrname_or_kdt='kdtree', forceunit=None):
         else:
             cartxyz = coord.cartesian.xyz.to(forceunit)
         flatxyz = cartxyz.reshape((3, np.prod(cartxyz.shape) // 3))
+        # There should be no NaNs in the kdtree data.
+        if np.isnan(flatxyz.value).any():
+            raise ValueError("Catalog coordinates cannot contain NaN entries.")
         try:
             # Set compact_nodes=False, balanced_tree=False to use
             # "sliding midpoint" rule, which is much faster than standard for

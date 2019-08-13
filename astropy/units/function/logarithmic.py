@@ -2,7 +2,10 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 import numpy as np
 
-from astropy.units import CompositeUnit, UnitsError, dimensionless_unscaled, photometric
+from astropy.units import (dimensionless_unscaled, photometric, Unit,
+                           CompositeUnit, UnitsError, UnitTypeError,
+                           UnitConversionError)
+
 from .core import FunctionUnitBase, FunctionQuantity
 from .units import dex, dB, mag
 
@@ -265,6 +268,41 @@ class LogQuantity(FunctionQuantity):
         self._set_unit(new_unit)
         return self
 
+    def __pow__(self, other):
+        # We check if this power is OK by applying it first to the unit.
+        try:
+            other = float(other)
+        except TypeError:
+            return NotImplemented
+        new_unit = self.unit ** other
+        new_value = self.view(np.ndarray) ** other
+        return self._new_view(new_value, new_unit)
+
+    def __ilshift__(self, other):
+        try:
+            other = Unit(other)
+        except UnitTypeError:
+            return NotImplemented
+
+        if not isinstance(other, self._unit_class):
+            return NotImplemented
+
+        try:
+            factor = self.unit.physical_unit._to(other.physical_unit)
+        except UnitConversionError:
+            # Maybe via equivalencies?  Now we do make a temporary copy.
+            try:
+                value = self._to_value(other)
+            except UnitConversionError:
+                return NotImplemented
+
+            self.view(np.ndarray)[...] = value
+        else:
+            self.view(np.ndarray)[...] += self.unit.from_physical(factor)
+
+        self._set_unit(other)
+        return self
+
     # Could add __mul__ and __div__ and try interpreting other as a power,
     # but this seems just too error-prone.
 
@@ -321,8 +359,8 @@ ABmag.__doc__ = "AB magnitude: ABmag=-48.6 corresponds to 1 erg/s/cm2/Hz"
 
 M_bol = MagUnit(photometric.Bol)
 M_bol.__doc__ = ("Absolute bolometric magnitude: M_bol=0 corresponds to "
-                 "L_bol0={0}".format(photometric.Bol.si))
+                 "L_bol0={}".format(photometric.Bol.si))
 
 m_bol = MagUnit(photometric.bol)
 m_bol.__doc__ = ("Apparent bolometric magnitude: m_bol=0 corresponds to "
-                 "f_bol0={0}".format(photometric.bol.si))
+                 "f_bol0={}".format(photometric.bol.si))

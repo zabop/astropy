@@ -277,9 +277,6 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
 
         super().__init__(data=data, header=header, name=name, ver=ver)
 
-        if header is not None and not isinstance(header, Header):
-            raise ValueError('header must be a Header object.')
-
         self._uint = uint
         self._character_as_bytes = character_as_bytes
 
@@ -295,7 +292,7 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
         else:
             # construct a list of cards of minimal header
             cards = [
-                ('XTENSION', '', ''),
+                ('XTENSION', self._extension, self._ext_comment),
                 ('BITPIX', 8, 'array data type'),
                 ('NAXIS', 2, 'number of array dimensions'),
                 ('NAXIS1', 0, 'length of dimension 1'),
@@ -327,7 +324,7 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
                 # warning for at least one major version.
                 if header is not None:
                     future_ignore = set()
-                    for keyword in self._header.keys():
+                    for keyword in header.keys():
                         match = TDEF_RE.match(keyword)
                         try:
                             base_keyword = match.group('label')
@@ -339,7 +336,7 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
                         keys = ', '.join(x + 'n' for x in sorted(future_ignore))
                         warnings.warn("The following keywords are now recognized as special "
                                       "column-related attributes and should be set via the "
-                                      "Column objects: {0}. In future, these values will be "
+                                      "Column objects: {}. In future, these values will be "
                                       "dropped from manually specified headers automatically "
                                       "and replaced with values generated based on the "
                                       "Column objects.".format(keys), AstropyDeprecationWarning)
@@ -369,10 +366,6 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
                 pass
             else:
                 raise TypeError('Table data has incorrect type.')
-
-        if not (isinstance(self._header[0], str) and
-                self._header[0].rstrip() == self._extension):
-            self._header[0] = (self._extension, self._ext_comment)
 
         # Ensure that the correct EXTNAME is set on the new header if one was
         # created, or that it overrides the existing EXTNAME if different
@@ -540,6 +533,18 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
         """
 
         errs = super()._verify(option=option)
+        if not (isinstance(self._header[0], str) and
+                self._header[0].rstrip() == self._extension):
+
+            err_text = 'The XTENSION keyword must match the HDU type.'
+            fix_text = 'Converted the XTENSION keyword to {}.'.format(self._extension)
+
+            def fix(header=self._header):
+                header[0] = (self._extension, self._ext_comment)
+
+            errs.append(self.run_option(option, err_text=err_text,
+                                        fix_text=fix_text, fix=fix))
+
         self.req_cards('NAXIS', None, lambda v: (v == 2), 2, option, errs)
         self.req_cards('BITPIX', None, lambda v: (v == 8), 8, option, errs)
         self.req_cards('TFIELDS', 7,
@@ -576,8 +581,8 @@ class _TableBaseHDU(ExtensionHDU, _TableLikeHDU):
             ncols = self._header['TFIELDS']
             format = ', '.join([self._header['TFORM' + str(j + 1)]
                                 for j in range(ncols)])
-            format = '[{}]'.format(format)
-        dims = "{}R x {}C".format(nrows, ncols)
+            format = f'[{format}]'
+        dims = f"{nrows}R x {ncols}C"
         ncards = len(self._header)
 
         return (self.name, self.ver, class_name, ncards, dims, format)
@@ -751,7 +756,7 @@ class TableHDU(_TableBaseHDU):
         dup = np.rec.find_duplicate(names)
 
         if dup:
-            raise ValueError("Duplicate field names: {}".format(dup))
+            raise ValueError(f"Duplicate field names: {dup}")
 
         # TODO: Determine if this extra logic is necessary--I feel like the
         # _AsciiColDefs class should be responsible for telling the table what
@@ -1092,7 +1097,7 @@ class BinTableHDU(_TableBaseHDU):
                         exist.append(f)
 
         if exist:
-            raise OSError('  '.join(["File '{}' already exists.".format(f)
+            raise OSError('  '.join([f"File '{f}' already exists."
                                      for f in exist]))
 
         # Process the data
@@ -1219,12 +1224,12 @@ class BinTableHDU(_TableBaseHDU):
                 return '{:{size}}'.format(val, size=itemsize)
             elif format in np.typecodes['AllInteger']:
                 # output integer
-                return '{:21d}'.format(val)
+                return f'{val:21d}'
             elif format in np.typecodes['Complex']:
-                return '{:21.15g}+{:.15g}j'.format(val.real, val.imag)
+                return f'{val.real:21.15g}+{val.imag:.15g}j'
             elif format in np.typecodes['Float']:
                 # output floating point
-                return '{:#21.15g}'.format(val)
+                return f'{val:#21.15g}'
 
         for row in self.data:
             line = []   # the line for this row of the table

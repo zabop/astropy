@@ -9,7 +9,8 @@ import pytest
 from datetime import timedelta
 
 from astropy.time import (Time, TimeDelta, OperandTypeError, ScaleValueError,
-                TIME_SCALES, STANDARD_TIME_SCALES, TIME_DELTA_SCALES)
+                          TIME_SCALES, STANDARD_TIME_SCALES, TIME_DELTA_SCALES)
+from astropy.utils import iers
 from astropy import units as u
 
 allclose_jd = functools.partial(np.allclose, rtol=2. ** -52, atol=0)
@@ -17,9 +18,20 @@ allclose_jd2 = functools.partial(np.allclose, rtol=2. ** -52,
                                  atol=2. ** -52)  # 20 ps atol
 allclose_sec = functools.partial(np.allclose, rtol=2. ** -52,
                                  atol=2. ** -52 * 24 * 3600)  # 20 ps atol
+orig_auto_download = iers.conf.auto_download
 
 
-class TestTimeDelta():
+def setup_module(module):
+    """Use offline IERS table only."""
+    iers.conf.auto_download = False
+
+
+def teardown_module(module):
+    """Restore original setting."""
+    iers.conf.auto_download = orig_auto_download
+
+
+class TestTimeDelta:
     """Test TimeDelta class"""
 
     def setup(self):
@@ -74,8 +86,8 @@ class TestTimeDelta():
     def test_add_vector(self):
         """Check time arithmetic as well as properly keeping track of whether
         a time is a scalar or a vector"""
-        t = Time(0.0, format='mjd', scale='utc')
-        t2 = Time([0.0, 1.0], format='mjd', scale='utc')
+        t = Time(0.0, format='mjd', scale='tai')
+        t2 = Time([0.0, 1.0], format='mjd', scale='tai')
         dt = TimeDelta(100.0, format='jd')
         dt2 = TimeDelta([100.0, 200.0], format='jd')
 
@@ -119,8 +131,8 @@ class TestTimeDelta():
     def test_sub_vector(self):
         """Check time arithmetic as well as properly keeping track of whether
         a time is a scalar or a vector"""
-        t = Time(0.0, format='mjd', scale='utc')
-        t2 = Time([0.0, 1.0], format='mjd', scale='utc')
+        t = Time(0.0, format='mjd', scale='tai')
+        t2 = Time([0.0, 1.0], format='mjd', scale='tai')
         dt = TimeDelta(100.0, format='jd')
         dt2 = TimeDelta([100.0, 200.0], format='jd')
 
@@ -188,10 +200,12 @@ class TestTimeDelta():
         dt5 = self.dt * np.arange(3)
         assert dt5[0].jd == 0.
         assert dt5[-1].jd == (self.dt + self.dt).jd
-        with pytest.raises(OperandTypeError):
-            self.dt * self.dt
+        dt6 = self.dt * [0, 1, 2]
+        assert np.all(dt6.jd == dt5.jd)
         with pytest.raises(OperandTypeError):
             self.dt * self.t
+        with pytest.raises(TypeError):
+            self.dt * object()
 
     def test_keep_properties(self):
         # closes #1924 (partially)
@@ -254,7 +268,7 @@ class TestTimeDelta():
         assert dt.format == 'datetime'
 
 
-class TestTimeDeltaScales():
+class TestTimeDeltaScales:
     """Test scale conversion for Time Delta.
     Go through @taldcroft's list of expected behavior from #1932"""
 
@@ -501,7 +515,7 @@ def test_timedelta_setitem():
 
     with pytest.raises(ValueError) as err:
         t[1] = 1 * u.m
-    assert 'cannot convert value to a compatible TimeDelta' in str(err)
+    assert 'cannot convert value to a compatible TimeDelta' in str(err.value)
 
 
 def test_timedelta_setitem_sec():
@@ -521,7 +535,7 @@ def test_timedelta_setitem_sec():
 
     with pytest.raises(ValueError) as err:
         t[1] = 1 * u.m
-    assert 'cannot convert value to a compatible TimeDelta' in str(err)
+    assert 'cannot convert value to a compatible TimeDelta' in str(err.value)
 
 
 def test_timedelta_mask():

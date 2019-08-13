@@ -430,7 +430,7 @@ class SkyCoord(ShapedLikeNDArray):
         # Get the composite transform to the new frame
         trans = frame_transform_graph.get_transform(self.frame.__class__, new_frame_cls)
         if trans is None:
-            raise ConvertError('Cannot transform from {0} to {1}'
+            raise ConvertError('Cannot transform from {} to {}'
                                .format(self.frame.__class__, new_frame_cls))
 
         # Make a generic frame which will accept all the frame kwargs that
@@ -596,14 +596,14 @@ class SkyCoord(ShapedLikeNDArray):
                 return self.transform_to(attr)
 
         # Fail
-        raise AttributeError("'{0}' object has no attribute '{1}'"
+        raise AttributeError("'{}' object has no attribute '{}'"
                              .format(self.__class__.__name__, attr))
 
     def __setattr__(self, attr, val):
         # This is to make anything available through __getattr__ immutable
         if '_sky_coord_frame' in self.__dict__:
             if self.frame.name == attr:
-                raise AttributeError("'{0}' is immutable".format(attr))
+                raise AttributeError(f"'{attr}' is immutable")
 
             if not attr.startswith('_') and hasattr(self._sky_coord_frame, attr):
                 setattr(self._sky_coord_frame, attr, val)
@@ -611,7 +611,7 @@ class SkyCoord(ShapedLikeNDArray):
 
             frame_cls = frame_transform_graph.lookup_name(attr)
             if frame_cls is not None and self.frame.is_transformable_to(frame_cls):
-                raise AttributeError("'{0}' is immutable".format(attr))
+                raise AttributeError(f"'{attr}' is immutable")
 
         if attr in frame_transform_graph.frame_attributes:
             # All possible frame attributes can be set, but only via a private
@@ -630,7 +630,7 @@ class SkyCoord(ShapedLikeNDArray):
         # mirror __setattr__ above
         if '_sky_coord_frame' in self.__dict__:
             if self.frame.name == attr:
-                raise AttributeError("'{0}' is immutable".format(attr))
+                raise AttributeError(f"'{attr}' is immutable")
 
             if not attr.startswith('_') and hasattr(self._sky_coord_frame,
                                                     attr):
@@ -639,7 +639,7 @@ class SkyCoord(ShapedLikeNDArray):
 
             frame_cls = frame_transform_graph.lookup_name(attr)
             if frame_cls is not None and self.frame.is_transformable_to(frame_cls):
-                raise AttributeError("'{0}' is immutable".format(attr))
+                raise AttributeError(f"'{attr}' is immutable")
 
         if attr in frame_transform_graph.frame_attributes:
             # All possible frame attributes can be deleted, but need to remove
@@ -733,7 +733,7 @@ class SkyCoord(ShapedLikeNDArray):
             lonargs.update(styles[style]['lonargs'])
             latargs.update(styles[style]['latargs'])
         else:
-            raise ValueError('Invalid style.  Valid options are: {0}'.format(",".join(styles)))
+            raise ValueError('Invalid style.  Valid options are: {}'.format(",".join(styles)))
 
         lonargs.update(kwargs)
         latargs.update(kwargs)
@@ -1136,11 +1136,12 @@ class SkyCoord(ShapedLikeNDArray):
         Returns
         -------
         idxsearcharound : integer array
-            Indices into ``self`` that matches to the corresponding element of
-            ``idxself``. Shape matches ``idxself``.
+            Indices into ``searcharoundcoords`` that match the
+            corresponding elements of ``idxself``. Shape matches
+            ``idxself``.
         idxself : integer array
-            Indices into ``searcharoundcoords`` that matches to the
-            corresponding element of ``idxsearcharound``. Shape matches
+            Indices into ``self`` that match the
+            corresponding elements of ``idxsearcharound``. Shape matches
             ``idxsearcharound``.
         sep2d : `~astropy.coordinates.Angle`
             The on-sky separation between the coordinates. Shape matches
@@ -1194,11 +1195,12 @@ class SkyCoord(ShapedLikeNDArray):
         Returns
         -------
         idxsearcharound : integer array
-            Indices into ``self`` that matches to the corresponding element of
-            ``idxself``. Shape matches ``idxself``.
+            Indices into ``searcharoundcoords`` that match the
+            corresponding elements of ``idxself``. Shape matches
+            ``idxself``.
         idxself : integer array
-            Indices into ``searcharoundcoords`` that matches to the
-            corresponding element of ``idxsearcharound``. Shape matches
+            Indices into ``self`` that match the
+            corresponding elements of ``idxsearcharound``. Shape matches
             ``idxsearcharound``.
         sep2d : `~astropy.coordinates.Angle`
             The on-sky separation between the coordinates. Shape matches
@@ -1395,7 +1397,6 @@ class SkyCoord(ShapedLikeNDArray):
         """
         return pixel_to_skycoord(xp, yp, wcs=wcs, origin=origin, mode=mode, cls=cls)
 
-
     def contained_by(self, wcs, image=None, **kwargs):
         """
         Determines if the SkyCoord is contained in the given wcs footprint.
@@ -1432,7 +1433,6 @@ class SkyCoord(ShapedLikeNDArray):
                 return False
 
         return (x < xmax) & (x > 0) & (y < ymax) & (y > 0)
-
 
     def radial_velocity_correction(self, kind='barycentric', obstime=None,
                                    location=None):
@@ -1647,8 +1647,8 @@ class SkyCoord(ShapedLikeNDArray):
 
         for k, v in comp_kwargs.items():
             if k in coord_kwargs:
-                raise ValueError('Found column "{0}" in table, but it was '
-                                 'already provided as "{1}" keyword to '
+                raise ValueError('Found column "{}" in table, but it was '
+                                 'already provided as "{}" keyword to '
                                  'guess_from_table function.'.format(v.name, k))
             else:
                 coord_kwargs[k] = v

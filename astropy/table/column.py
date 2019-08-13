@@ -130,7 +130,7 @@ class FalseArray(np.ndarray):
     def __setitem__(self, item, val):
         val = np.asarray(val)
         if np.any(val):
-            raise ValueError('Cannot set any element of {0} class to True'
+            raise ValueError('Cannot set any element of {} class to True'
                              .format(self.__class__.__name__))
 
 
@@ -199,7 +199,7 @@ class BaseColumn(_ColumnGetitemShim, np.ndarray):
             if format is None:
                 format = data.format
             if meta is None:
-                meta = deepcopy(data.meta)
+                meta = data.meta
             if name is None:
                 name = data.name
         elif isinstance(data, Quantity):
@@ -213,7 +213,7 @@ class BaseColumn(_ColumnGetitemShim, np.ndarray):
             if format is None:
                 format = data.info.format
             if meta is None:
-                meta = deepcopy(data.info.meta)
+                meta = data.info.meta
 
         else:
             if np.dtype(dtype).char == 'S':
@@ -227,8 +227,7 @@ class BaseColumn(_ColumnGetitemShim, np.ndarray):
         self._format = format
         self.description = description
         self.meta = meta
-        self.indices = deepcopy(getattr(data, 'indices', [])) if \
-                       copy_indices else []
+        self.indices = deepcopy(getattr(data, 'indices', [])) if copy_indices else []
         for index in self.indices:
             index.replace_col(data, self)
 
@@ -292,6 +291,13 @@ class BaseColumn(_ColumnGetitemShim, np.ndarray):
 
         out = data.view(self.__class__)
         out.__array_finalize__(self)
+
+        # If there is meta on the original column then deepcopy (since "copy" of column
+        # implies complete independence from original).  __array_finalize__ will have already
+        # made a light copy.  I'm not sure how to avoid that initial light copy.
+        if self.meta is not None:
+            out.meta = self.meta  # MetaData descriptor does a deepcopy here
+
         # for MaskedColumn, MaskedArray.__array_finalize__ also copies mask
         # from self, which is not the idea here, so undo
         if isinstance(self, MaskedColumn):
@@ -426,8 +432,8 @@ class BaseColumn(_ColumnGetitemShim, np.ndarray):
             # revert to restore previous format if there was one
             self._format = prev_format
             raise ValueError(
-                "Invalid format for column '{0}': could not display "
-                "values in this column using this format ({1})".format(
+                "Invalid format for column '{}': could not display "
+                "values in this column using this format ({})".format(
                     self.name, err.args[0]))
 
     @property
@@ -697,7 +703,7 @@ class BaseColumn(_ColumnGetitemShim, np.ndarray):
         # the Quantity initializer is used here because it correctly fails
         # if the column's values are non-numeric (like strings), while .view
         # will happily return a quantity with gibberish for numerical values
-        return Quantity(self, copy=False, dtype=self.dtype, order='A')
+        return Quantity(self, self.unit, copy=False, dtype=self.dtype, order='A', subok=True)
 
     def to(self, unit, equivalencies=[], **kwargs):
         """
@@ -728,7 +734,11 @@ class BaseColumn(_ColumnGetitemShim, np.ndarray):
         for attr in ('name', 'unit', '_format', 'description'):
             val = getattr(obj, attr, None)
             setattr(self, attr, val)
-        self.meta = deepcopy(getattr(obj, 'meta', {}))
+
+        # Light copy of meta if it is not empty
+        obj_meta = getattr(obj, 'meta', None)
+        if obj_meta:
+            self.meta = obj_meta.copy()
 
     @staticmethod
     def _encode_str(value):
@@ -749,6 +759,12 @@ class BaseColumn(_ColumnGetitemShim, np.ndarray):
             value = arr
 
         return value
+
+    def tolist(self):
+        if self.dtype.kind == 'S':
+            return np.chararray.decode(self, encoding='utf-8').tolist()
+        else:
+            return super().tolist()
 
 
 class Column(BaseColumn):
@@ -861,7 +877,7 @@ class Column(BaseColumn):
                           ('length', len(self))):
 
             if val is not None:
-                descr_vals.append('{0}={1!r}'.format(attr, val))
+                descr_vals.append(f'{attr}={val!r}')
 
         descr = '<' + ' '.join(descr_vals) + '>\n'
 
@@ -955,6 +971,7 @@ class Column(BaseColumn):
             # future numpy versions will do so.  NUMPY_LT_1_13 to get the
             # attention of future maintainers to check (by deleting or versioning
             # the if block below).  See #6899 discussion.
+            # 2019-06-21: still needed with numpy 1.16.
             if (isinstance(self, MaskedColumn) and self.dtype.kind == 'U' and
                     isinstance(other, MaskedColumn) and other.dtype.kind == 'S'):
                 self, other = other, self
@@ -962,7 +979,11 @@ class Column(BaseColumn):
 
             if self.dtype.char == 'S':
                 other = self._encode_str(other)
-            return getattr(self.data, op)(other)
+
+            # Now just let the regular ndarray.__eq__, etc., take over.
+            result = getattr(super(), op)(other)
+            # But we should not return Column instances for this case.
+            return result.data if isinstance(result, Column) else result
 
         return _compare
 
@@ -1069,13 +1090,23 @@ class MaskedColumnInfo(ColumnInfo):
         # If the serialize method for this context (e.g. 'fits' or 'ecsv') is
         # 'data_mask', that means to serialize using an explicit mask column.
         method = self.serialize_method[self._serialize_context]
+
         if method == 'data_mask':
+            # Note that adding to _represent_as_dict_attrs triggers later code which
+            # will add this to the '__serialized_columns__' meta YAML dict.
+
+            # Note also one driver here is a performance issue in #8443 where repr() of a
+            # np.ma.MaskedArray value is up to 10 times slower than repr of a normal array
+            # value.  So regardless of whether there are masked elements it is useful to
+            # explicitly define this as a serialized column and use col.data.data (ndarray)
+            # instead of letting it fall through to the "standard" serialization machinery.
+            out['data'] = col.data.data
+            self._represent_as_dict_attrs += ('data',)
+
             if np.any(col.mask):
-                # Note that adding to _represent_as_dict_attrs triggers later code which
-                # will add this to the '__serialized_columns__' meta YAML dict.
-                out['data'] = col.data.data
+                # Only if there are actually masked elements do we add the ``mask`` column
                 out['mask'] = col.mask
-                self._represent_as_dict_attrs += ('data', 'mask',)
+                self._represent_as_dict_attrs += ('mask',)
 
         elif method is 'null_value':
             pass
@@ -1165,12 +1196,16 @@ class MaskedColumn(Column, _MaskedColumnGetitemShim, ma.MaskedArray):
                 copy=False, copy_indices=True):
 
         if mask is None:
-            # Issue #7399 with fix #7422.  Passing mask=None to ma.MaskedArray
-            # is extremely slow (~3 seconds for 1e7 elements), while mask=False
-            # gets quickly broadcast to the expected bool array of False.
-            mask = getattr(data, 'mask', False)
-            if mask is not False:
-                mask = np.array(mask, copy=copy)
+            # If mask is None then we need to determine the mask (if any) from the data.
+            # The naive method is looking for a mask attribute on data, but this can fail,
+            # see #8816.  Instead use ``MaskedArray`` to do the work.
+            mask = ma.MaskedArray(data).mask
+            if mask is np.ma.nomask:
+                # Handle odd-ball issue with np.ma.nomask (numpy #13758), and see below.
+                mask = False
+            elif copy:
+                mask = mask.copy()
+
         elif mask is np.ma.nomask:
             # Force the creation of a full mask array as nomask is tricky to
             # use and will fail in an unexpected manner when setting a value
@@ -1237,10 +1272,12 @@ class MaskedColumn(Column, _MaskedColumnGetitemShim, ma.MaskedArray):
 
     @property
     def data(self):
-        out = self.view(ma.MaskedArray)
-        # The following is necessary because of a bug in Numpy, which was
-        # fixed in numpy/numpy#2703. The fix should be included in Numpy 1.8.0.
-        out.fill_value = self.fill_value
+        """The plain MaskedArray data held by this column."""
+        out = self.view(np.ma.MaskedArray)
+        # By default, a MaskedArray view will set the _baseclass to be the
+        # same as that of our own class, i.e., BaseColumn.  Since we want
+        # to return a plain MaskedArray, we reset the baseclass accordingly.
+        out._baseclass = np.ndarray
         return out
 
     def filled(self, fill_value=None):
@@ -1265,6 +1302,7 @@ class MaskedColumn(Column, _MaskedColumnGetitemShim, ma.MaskedArray):
         data = super().filled(fill_value)
         # Use parent table definition of Column if available
         column_cls = self.parent_table.Column if (self.parent_table is not None) else Column
+
         out = column_cls(name=self.name, data=data, unit=self.unit,
                          format=self.format, description=self.description,
                          meta=deepcopy(self.meta))

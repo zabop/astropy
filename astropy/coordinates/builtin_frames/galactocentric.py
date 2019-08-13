@@ -58,7 +58,7 @@ doc_footer = """
         velocity components.
     z_sun : `~astropy.units.Quantity`, optional, must be keyword
         The distance from the sun to the Galactic midplane.
-    roll : `Angle`, optional, must be keyword
+    roll : `~astropy.coordinates.Angle`, optional, must be keyword
         The angle to rotate about the final x-axis, relative to the
         orientation for Galactic. For example, if this roll angle is 0,
         the final x-z plane will align with the Galactic coordinates x-z
@@ -113,6 +113,7 @@ doc_footer = """
             [(  86.2585249 ,  28.85773187,  2.75625475e-05),
              ( 289.77285255,  50.06290457,  8.59216010e+01)]>
 """
+
 
 @format_doc(base_doc, components=doc_components, footer=doc_footer)
 class Galactocentric(BaseCoordinateFrame):

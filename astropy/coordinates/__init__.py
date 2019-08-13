@@ -26,16 +26,3 @@ from .solar_system import *
 # deprecation warnings are removed
 from .attributes import (TimeFrameAttribute, QuantityFrameAttribute,
                          CartesianRepresentationFrameAttribute)
-
-__doc__ += builtin_frames._transform_graph_docs + """
-
-.. note::
-
-    The ecliptic coordinate systems (added in Astropy v1.1) have not been
-    extensively tested for accuracy or consistency with other implementations of
-    ecliptic coordinates.  We welcome contributions to add such testing, but in
-    the meantime, users who depend on consistency with other implementations may
-    wish to check test inputs against good datasets before using Astropy's
-    ecliptic coordinates.
-
-"""

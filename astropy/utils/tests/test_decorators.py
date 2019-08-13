@@ -7,8 +7,8 @@ import pickle
 import pytest
 
 from astropy.utils.decorators import (deprecated_attribute, deprecated, wraps,
-                          sharedmethod, classproperty,
-                          format_doc, deprecated_renamed_argument)
+                                      sharedmethod, classproperty,
+                                      format_doc, deprecated_renamed_argument)
 from astropy.utils.exceptions import AstropyDeprecationWarning, AstropyUserWarning
 from astropy.tests.helper import catch_warnings
 
@@ -46,60 +46,11 @@ def test_wraps():
     if hasattr(foo, '__qualname__'):
         assert bar.__qualname__ == foo.__qualname__
 
-    argspec = inspect.getfullargspec(bar)
-    assert argspec.varkw == 'kwargs'
+    sig = inspect.signature(bar)
+    assert list(sig.parameters) == ['a', 'b', 'c', 'd', 'e', 'kwargs']
 
-    assert argspec.args == ['a', 'b', 'c', 'd', 'e']
-    assert argspec.defaults == (1, 2, 3)
-
-
-def test_wraps_exclude_names():
-    """
-    Test the optional ``exclude_names`` argument to the wraps decorator.
-    """
-
-    # This particular test demonstrates wrapping an instance method
-    # as a function and excluding the "self" argument:
-
-    class TestClass:
-        def method(self, a, b, c=1, d=2, **kwargs):
-            return (a, b, c, d, kwargs)
-
-    test = TestClass()
-
-    @wraps(test.method, exclude_args=('self',))
-    def func(*args, **kwargs):
-        return test.method(*args, **kwargs)
-
-    argspec = inspect.getfullargspec(func)
-    assert argspec.args == ['a', 'b', 'c', 'd']
-
-    assert func('a', 'b', e=3) == ('a', 'b', 1, 2, {'e': 3})
-
-
-def test_wraps_keep_orig_name():
-    """
-    Test that when __name__ is excluded from the ``assigned`` argument
-    to ``wrap`` that the function being wrapped keeps its original name.
-
-    Regression test for https://github.com/astropy/astropy/pull/4016
-    """
-
-    def foo():
-        pass
-
-    assigned = list(functools.WRAPPER_ASSIGNMENTS)
-    assigned.remove('__name__')
-
-    def bar():
-        pass
-
-    orig_bar = bar
-
-    bar = wraps(foo, assigned=assigned)(bar)
-
-    assert bar is not orig_bar
-    assert bar.__name__ == 'bar'
+    defaults = [inspect._empty, inspect._empty, 1, 2, 3, inspect._empty]
+    assert [p.default for p in sig.parameters.values()] == defaults
 
 
 def test_deprecated_attribute():
@@ -511,6 +462,23 @@ def test_deprecated_argument_not_allowed_use():
         @deprecated_renamed_argument('overwrite', 'kwargs', '1.3')
         def test3(**kwargs):
             return kwargs
+
+
+def test_deprecated_argument_remove():
+    @deprecated_renamed_argument('x', None, '2.0', alternative='astropy.y')
+    def test(dummy=11):
+        return dummy
+
+    with catch_warnings(AstropyDeprecationWarning) as w:
+        assert test(x=1) == 11
+        assert len(w) == 1
+        assert 'Use astropy.y instead' in str(w[0].message)
+
+    with catch_warnings(AstropyDeprecationWarning) as w:
+        assert test(x=1, dummy=10) == 10
+        assert len(w) == 1
+
+    assert test() == 11
 
 
 def test_sharedmethod_reuse_on_subclasses():

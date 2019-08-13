@@ -31,20 +31,20 @@ packages that use the full bugfix/maintenance branch approach.)
 
 #. (Only for major versions) Make sure to update the "What's new"
    section with the stats on the number of issues, PRs, and contributors.  For
-   the first two, the `astropy-tools repository`_ script ``gh_issuereport.py``
+   the first two, the `astropy-procedures repository`_ script ``gh_issuereport.py``
    can provide the numbers since the last major release.  For the final one, you
    will likely need to update the Astropy ``.mailmap`` file, as there are often
    contributors who are not careful about using the same e-mail address for
    every commit.  The easiest way to do this is to run the command
    ``git shortlog -n -s -e`` to see the list of all contributors and their email
-   addresses.  Look for any mis-named entries or duplicates, and add them to the
+   addresses.  Look for any misnamed entries or duplicates, and add them to the
    ``.mailmap`` file (matched to the appropriate canonical name/email address.)
-   Once you have finished this, you can could the number of lines in
+   Once you have finished this, you can count the number of lines in
    ``git shortlog -s`` to get the final contributor count.
 
 #. Also be sure to update the ``docs/credits.rst`` file to include any new
    contributors.  This can come from the above step, or the ``author_lists.py``
-   script in the `astropy-tools repository`_ mostly automates this.  (This
+   script in the `astropy-procedures repository`_ mostly automates this.  (This
    step is only required on major releases, but can be done for bugfix releases
    as time allows.)
 
@@ -68,7 +68,7 @@ packages that use the full bugfix/maintenance branch approach.)
 #. Make sure that the continuous integration services (e.g., Travis) are passing
    for the `astropy core repository`_ branch you're going to release.  You may
    also want to locally run the tests (with remote data on to ensure all the
-   tests actually run), and make sure the description in ``setup.py`` is ReST
+   tests actually run), and make sure the description in ``setup.cfg`` is ReST
    compliant::
 
       $ python setup.py test --remote-data=any
@@ -98,12 +98,12 @@ packages that use the full bugfix/maintenance branch approach.)
       $ git add CHANGES.rst
       $ git commit -m "Finalizing changelog for v<version>"
 
-#. Edit the ``setup.py`` file by removing the ``".dev"`` at the end of the
-   ``VERSION`` string, then add and commit that change as the final step prior
+#. Edit the ``setup.cfg`` file by removing the ``".dev"`` at the end of the
+   ``version`` string, then add and commit that change as the final step prior
    to release::
 
-      <use your favorite editor on setup.py>
-      $ git add setup.py
+      <use your favorite editor on setup.cfg>
+      $ git add setup.cfg
       $ git commit -m "Preparing release v<version>"
 
 #. Tag the commit with ``v<version>``, being certain to sign the tag with the
@@ -154,10 +154,10 @@ packages that use the full bugfix/maintenance branch approach.)
 
 #. Build and test the Astropy wheels.  See the `wheel builder README
    <https://github.com/MacPython/astropy-wheels>`_ for instructions.  In
-   summary, clone the wheel-building repo, edit the ``.travis.yml`` and
-   ``appveyor.yml`` text files with the branch or commit for the release,
+   summary, clone the wheel-building repo, edit the ``.travis.yml``
+   text file with the branch or commit for the release,
    commit and then push back up to github.  This will trigger a wheel build
-   and test on OSX, Linux and Windows. Check the build has passed on on the
+   and test on OSX, Linux, and Windows. Check the build has passed on on the
    Travis-CI interface at https://travis-ci.org/MacPython/astropy-wheels.
    You'll need commit privileges to the ``astropy-wheels`` repo; ask Tom Kooij
    or on the mailing list if you do not have them.
@@ -175,9 +175,8 @@ packages that use the full bugfix/maintenance branch approach.)
    * build and upload the Astropy wheels;
    * make and upload the Astropy source release.
 
-
 #. For the wheel build / upload, follow the `wheel builder README`_
-   instructions again.  Edit the ``.travis.yml`` and ``appveyor.yml`` files
+   instructions again.  Edit the ``.travis.yml`` file
    to give the release tag to build.  Check the build has passed on on the
    Travis-CI interface at https://travis-ci.org/MacPython/astropy-wheels.  Now
    follow the instructions in the page above to download the built wheels to a
@@ -200,18 +199,18 @@ packages that use the full bugfix/maintenance branch approach.)
       $ gpg --detach-sign -a dist/astropy-<version>.tar.gz
       $ twine upload dist/astropy-<version>*
 
-#. Go back to release branch (e.g., ``1.2.x``) and edit the ``VERSION`` in
-   ``setup.py`` to be the next version number, but with
+#. Go back to release branch (e.g., ``1.2.x``) and edit the ``version`` in
+   ``setup.cfg`` to be the next version number, but with
    a ``.dev`` suffix at the end (e.g., ``1.2.3.dev``).  Then add and commit::
 
       $ git checkout v1.2.x
-      <use your favorite editor on setup.py>
-      $ git add setup.py
+      <use your favorite editor on setup.cfg>
+      $ git add setup.cfg
       $ git commit -m "Back to development: v<next_version>.dev"
 
 #. Also update the ``CHANGES.rst`` file with a new section for the next version.
    You will likely want to use the ``add_to_changelog.py`` script in the
-   `astropy-tools repository`_ for this.  Then add and commit::
+   `astropy-procedures repository`_ for this.  Then add and commit::
 
       <use your favorite editor on CHANGES.rst>
       $ git add CHANGES.rst
@@ -283,6 +282,22 @@ packages that use the full bugfix/maintenance branch approach.)
    in the ``ci-helpers`` repository once the ``conda`` packages became
    available.
 
+#. Upload the release to Zenodo. This has to be done manually since the
+   Zenodo/GitHub integration relies on making releases on GitHub, which we
+   don't do. So for the Astropy core package, log in to
+   Zenodo using the Astropy team credentials, then go to the `existing
+   record <https://zenodo.org/record/1461593>`_. Click on **New version** - note
+   that it's important to do this rather than upload the release as a completely
+   new record. You should now see a pre-filled deposit form with the details from
+   the previous release. Start off by removing the existing file under the
+   **Files** section, then click on **Choose Files** and select the ``tar.gz``
+   release file for the core package release you are uploading, and click
+   **Start upload**. Before you publish this, there are a few fields to update
+   in the form: the **Publication date** should be set to the date the tar
+   file was uploaded to PyPI, the **Title** should be updated to include the
+   new version number, and the **Version** should be updated to include the
+   version number (with no ``v`` prefix). Once you are happy with the changes,
+   click **Save**, then **Publish**.
 
 .. _release-procedure-beta-rc:
 
@@ -333,17 +348,17 @@ The procedure for this is straightforward:
 
       $ git branch v<version>.x
 
-#. Update the ``VERSION`` in ``setup.py`` to reflect the new major version. For
+#. Update the ``version`` in ``setup.cfg`` to reflect the new major version. For
    example, if you are about to issue a feature freeze for version ``1.2``, you
    will want to set the new version to ``'1.3.dev'``. Then add and commit that::
 
-      <use your favorite editor on setup.py>
-      $ git add setup.py
+      <use your favorite editor on setup.cfg>
+      $ git add setup.cfg
       $ git commit -m "Next major version: <next_version>"
 
 #. Update the ``CHANGES.rst`` file with a new section at the very top for the
    next major version.  You will likely want to use the ``add_to_changelog.py``
-   script in the `astropy-tools repository`_ for this. Then add and commit those
+   script in the `astropy-procedures repository`_ for this. Then add and commit those
    changes::
 
       <use your favorite editor on CHANGES.rst>
@@ -532,7 +547,7 @@ right version number).
    the process of backporting.  See :ref:`changelog-format` for more details.
 
 To aid this process, there are a series of related scripts in the
-`astropy-tools repository`_, in the ``pr_consistency`` directory.  These scripts
+`astropy-procedures repository`_, in the ``pr_consistency`` directory.  These scripts
 essentially check that the above two conditions are met. Detailed documentation
 for these scripts is given in their repository, but here we summarize the basic
 workflow.  Run the scripts in order (they are numbered 1.<something>.py,
@@ -809,7 +824,7 @@ that for you.  You can delete this tag by doing::
 .. _astropy core repository: https://github.com/astropy/astropy
 .. _signed tags: http://git-scm.com/book/en/Git-Basics-Tagging#Signed-Tags
 .. _cython: http://www.cython.org/
-.. _astropy-tools repository: https://github.com/astropy/astropy-tools
+.. _astropy-procedures repository: https://github.com/astropy/astropy-procedures
 .. _Anaconda: https://conda.io/docs/
 .. _astropy-helpers repository: https://github.com/astropy/astropy-helpers
 .. _twine: https://packaging.python.org/key_projects/#twine

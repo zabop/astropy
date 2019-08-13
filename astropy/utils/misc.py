@@ -4,7 +4,9 @@
 A "grab bag" of relatively small general-purpose utilities that don't have
 a clear module/package to live in.
 """
+
 import abc
+import copy
 import contextlib
 import difflib
 import inspect
@@ -21,6 +23,8 @@ import re
 from itertools import zip_longest
 from contextlib import contextmanager
 from collections import defaultdict, OrderedDict
+
+from astropy.utils.decorators import deprecated
 
 
 __all__ = ['isiterable', 'silence', 'format_exception', 'NumpyRNGContext',
@@ -222,12 +226,17 @@ def find_api_page(obj, version=None, openinbrowser=True, timeout=None):
     elif version == 'dev' or version == 'latest':
         baseurl = 'http://devdocs.astropy.org/'
     else:
-        baseurl = 'http://docs.astropy.org/en/{vers}/'.format(vers=version)
+        baseurl = f'https://docs.astropy.org/en/{version}/'
+
+    # Custom request headers; see
+    # https://github.com/astropy/astropy/issues/8990
+    req = urllib.request.Request(
+        baseurl + 'objects.inv', headers={'User-Agent': f'Astropy/{version}'})
 
     if timeout is None:
-        uf = urllib.request.urlopen(baseurl + 'objects.inv')
+        uf = urllib.request.urlopen(req)
     else:
-        uf = urllib.request.urlopen(baseurl + 'objects.inv', timeout=timeout)
+        uf = urllib.request.urlopen(req, timeout=timeout)
 
     try:
         oiread = uf.read()
@@ -244,7 +253,7 @@ def find_api_page(obj, version=None, openinbrowser=True, timeout=None):
         # intersphinx version line, project name, and project version
         ivers, proj, vers, compr = headerlines
         if 'The remainder of this file is compressed using zlib' not in compr:
-            raise ValueError('The file downloaded from {0} does not seem to be'
+            raise ValueError('The file downloaded from {} does not seem to be'
                              'the usual Sphinx objects.inv format.  Maybe it '
                              'has changed?'.format(baseurl + 'objects.inv'))
 
@@ -268,7 +277,7 @@ def find_api_page(obj, version=None, openinbrowser=True, timeout=None):
             break
 
     if resurl is None:
-        raise ValueError('Could not find the docs for the object {obj}'.format(obj=obj))
+        raise ValueError(f'Could not find the docs for the object {obj}')
     elif openinbrowser:
         webbrowser.open(resurl)
 
@@ -296,7 +305,7 @@ if sys.platform == 'win32':
         """
         Returns True if the given filepath has the hidden attribute on
         MS-Windows.  Based on a post here:
-        http://stackoverflow.com/questions/284115/cross-platform-hidden-file-detection
+        https://stackoverflow.com/questions/284115/cross-platform-hidden-file-detection
         """
         if isinstance(filepath, bytes):
             filepath = filepath.decode(sys.getfilesystemencoding())
@@ -484,11 +493,12 @@ def did_you_mean(s, candidates, n=3, cutoff=0.8, fix=None):
         else:
             matches = (', '.join(matches[:-1]) + ' or ' +
                        matches[-1])
-        return 'Did you mean {0}?'.format(matches)
+        return f'Did you mean {matches}?'
 
     return ''
 
 
+@deprecated('4.0', alternative='Sphinx>=1.7 automatically inherits docstring')
 class InheritDocstrings(type):
     """
     This metaclass makes methods of a class automatically have their
@@ -503,14 +513,18 @@ class InheritDocstrings(type):
 
     For example::
 
+        >>> import warnings
         >>> from astropy.utils.misc import InheritDocstrings
-        >>> class A(metaclass=InheritDocstrings):
-        ...     def wiggle(self):
-        ...         "Wiggle the thingamajig"
-        ...         pass
-        >>> class B(A):
-        ...     def wiggle(self):
-        ...         pass
+        >>> with warnings.catch_warnings():
+        ...     # Ignore deprecation warning
+        ...     warnings.simplefilter('ignore')
+        ...     class A(metaclass=InheritDocstrings):
+        ...         def wiggle(self):
+        ...             "Wiggle the thingamajig"
+        ...             pass
+        ...     class B(A):
+        ...         def wiggle(self):
+        ...             pass
         >>> B.wiggle.__doc__
         u'Wiggle the thingamajig'
     """
@@ -612,7 +626,7 @@ class OrderedDescriptor(metaclass=abc.ABCMeta):
                 return self.__order < other.__order
             except AttributeError:
                 raise RuntimeError(
-                    'Could not determine ordering for {0} and {1}; at least '
+                    'Could not determine ordering for {} and {}; at least '
                     'one of them is not calling super().__init__ in its '
                     '__init__.'.format(self, other))
         else:
@@ -815,7 +829,28 @@ class OrderedDescriptorContainer(type):
             instances = OrderedDict((key, value) for value, key in instances)
             setattr(cls, descriptor_cls._class_attribute_, instances)
 
-        super().__init__(cls_name, bases, members)
+        super(OrderedDescriptorContainer, cls).__init__(cls_name, bases,
+                                                        members)
+
+
+def get_parameters(members):
+    """
+    Looks for ordered descriptors in a class definition and
+    copies such definitions in two new class attributes,
+    one being a dictionary of these objects keyed by their
+    attribute names, and the other a simple list of those names.
+
+    """
+    pdict = OrderedDict()
+    for name, obj in members.items():
+        if (not isinstance(obj, OrderedDescriptor)):
+            continue
+        if obj._name_attribute_ is not None:
+            setattr(obj, '_name', name)
+        pdict[name] = obj
+
+    # members['_parameter_vals_'] = pdict
+    members['_parameters_'] = pdict
 
 
 LOCALE_LOCK = threading.Lock()
@@ -927,7 +962,7 @@ class ShapedLikeNDArray(metaclass=abc.ABCMeta):
 
     def __len__(self):
         if self.isscalar:
-            raise TypeError("Scalar {0!r} object has no len()"
+            raise TypeError("Scalar {!r} object has no len()"
                             .format(self.__class__.__name__))
         return self.shape[0]
 
@@ -940,14 +975,14 @@ class ShapedLikeNDArray(metaclass=abc.ABCMeta):
             return self._apply('__getitem__', item)
         except IndexError:
             if self.isscalar:
-                raise TypeError('scalar {0!r} object is not subscriptable.'
+                raise TypeError('scalar {!r} object is not subscriptable.'
                                 .format(self.__class__.__name__))
             else:
                 raise
 
     def __iter__(self):
         if self.isscalar:
-            raise TypeError('scalar {0!r} object is not iterable.'
+            raise TypeError('scalar {!r} object is not iterable.'
                             .format(self.__class__.__name__))
 
         # We cannot just write a generator here, since then the above error

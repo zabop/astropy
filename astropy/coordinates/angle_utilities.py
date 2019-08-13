@@ -56,6 +56,7 @@ class _AngleParser:
     This class should not be used directly.  Use `parse_angle`
     instead.
     """
+
     def __init__(self):
         # TODO: in principle, the parser should be invalidated if we change unit
         # system (from CDS to FITS, say).  Might want to keep a link to the
@@ -126,7 +127,7 @@ class _AngleParser:
             t.value = u.Unit(t.value)
             return t
         t_SIMPLE_UNIT.__doc__ = '|'.join(
-            '(?:{0})'.format(x) for x in cls._get_simple_unit_names())
+            f'(?:{x})' for x in cls._get_simple_unit_names())
 
         t_COLON = ':'
         t_DEGREE = r'd(eg(ree(s)?)?)?|°'
@@ -140,7 +141,7 @@ class _AngleParser:
         # Error handling rule
         def t_error(t):
             raise ValueError(
-                "Invalid character at col {0}".format(t.lexpos))
+                f"Invalid character at col {t.lexpos}")
 
         lexer_exists = os.path.exists(os.path.join(os.path.dirname(__file__),
                                       'angle_lextab.py'))
@@ -304,11 +305,11 @@ class _AngleParser:
                 angle, lexer=self._lexer, debug=debug)
         except ValueError as e:
             if str(e):
-                raise ValueError("{0} in angle {1!r}".format(
+                raise ValueError("{} in angle {!r}".format(
                     str(e), angle))
             else:
                 raise ValueError(
-                    "Syntax error parsing angle {0!r}".format(angle))
+                    f"Syntax error parsing angle {angle!r}")
 
         if unit is None and found_unit is None:
             raise u.UnitsError("No unit specified")
@@ -628,7 +629,7 @@ def sexagesimal_to_string(values, precision=None, pad=False, sep=(':',),
         literal.append('{1:02d}{sep[1]}')
     if fields == 3:
         if precision is None:
-            last_value = '{0:.4f}'.format(abs(values[2]))
+            last_value = '{:.4f}'.format(abs(values[2]))
             last_value = last_value.rstrip('0').rstrip('.')
         else:
             last_value = '{0:.{precision}f}'.format(
@@ -674,7 +675,7 @@ def angular_separation(lon1, lat1, lon2, lat2):
 
     Parameters
     ----------
-    lon1, lat1, lon2, lat2 : `Angle`, `~astropy.units.Quantity` or float
+    lon1, lat1, lon2, lat2 : `~astropy.coordinates.Angle`, `~astropy.units.Quantity` or float
         Longitude and latitude of the two points. Quantities should be in
         angular units; floats in radians.
 
@@ -714,7 +715,7 @@ def position_angle(lon1, lat1, lon2, lat2):
 
     Parameters
     ----------
-    lon1, lat1, lon2, lat2 : `Angle`, `~astropy.units.Quantity` or float
+    lon1, lat1, lon2, lat2 : `~astropy.coordinates.Angle`, `~astropy.units.Quantity` or float
         Longitude and latitude of the two points. Quantities should be in
         angular units; floats in radians.
 
@@ -736,13 +737,14 @@ def position_angle(lon1, lat1, lon2, lat2):
 
     return Angle(np.arctan2(y, x), u.radian).wrap_at(360*u.deg)
 
+
 def offset_by(lon, lat, posang, distance):
     """
     Point with the given offset from the given point.
 
     Parameters
     ----------
-    lon, lat, posang, distance : `Angle`, `~astropy.units.Quantity` or float
+    lon, lat, posang, distance : `~astropy.coordinates.Angle`, `~astropy.units.Quantity` or float
         Longitude and latitude of the starting point,
         position angle and distance to the final point.
         Quantities should be in angular units; floats in radians.
@@ -787,14 +789,16 @@ def offset_by(lon, lat, posang, distance):
 
     A = Angle(np.arctan2(xsin_A, xcos_A), u.radian)
     # Treat the poles as if they are infinitesimally far from pole but at given lon
-    # The +0*xsin_A is to broadcast a scalar to vector as necessary
-    w_pole = np.argwhere((sin_c + 0*xsin_A) < 1e-12)
-    if len(w_pole) > 0:
+    small_sin_c = sin_c < 1e-12
+    if small_sin_c.any():
         # For south pole (cos_c = -1), A = posang; for North pole, A=180 deg - posang
         A_pole = (90*u.deg + cos_c*(90*u.deg-Angle(posang, u.radian))).to(u.rad)
-        try:
-            A[w_pole] = A_pole[w_pole]
-        except TypeError as e: # scalar
+        if A.shape:
+            # broadcast to ensure the shape is like that of A, which is also
+            # affected by the (possible) shapes of lat, posang, and distance.
+            small_sin_c = np.broadcast_to(small_sin_c, A.shape)
+            A[small_sin_c] = A_pole[small_sin_c]
+        else:
             A = A_pole
 
     outlon = (Angle(lon, u.radian) + A).wrap_at(360.0*u.deg).to(u.deg)

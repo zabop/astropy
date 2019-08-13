@@ -314,12 +314,12 @@ class Char(Converter):
                 self.arraysize = int(field.arraysize)
             except ValueError:
                 vo_raise(E01, (field.arraysize, 'char', field.ID), config)
-            self.format = 'S{:d}'.format(self.arraysize)
+            self.format = f'S{self.arraysize:d}'
             self.binparse = self._binparse_fixed
             self.binoutput = self._binoutput_fixed
-            self._struct_format = ">{:d}s".format(self.arraysize)
+            self._struct_format = f">{self.arraysize:d}s"
 
-        if config.get('pedantic'):
+        if config.get('verify', 'ignore') == 'exception':
             self.parse = self._ascii_parse
         else:
             self.parse = self._str_parse
@@ -391,7 +391,7 @@ class UnicodeChar(Converter):
                 self.arraysize = int(field.arraysize)
             except ValueError:
                 vo_raise(E01, (field.arraysize, 'unicode', field.ID), config)
-            self.format = 'U{:d}'.format(self.arraysize)
+            self.format = f'U{self.arraysize:d}'
             self.binparse = self._binparse_fixed
             self.binoutput = self._binoutput_fixed
             self._struct_format = ">{:d}s".format(self.arraysize * 2)
@@ -439,7 +439,7 @@ class Array(Converter):
         if config is None:
             config = {}
         Converter.__init__(self, field, config, pos)
-        if config.get('pedantic'):
+        if config.get('verify', 'ignore') == 'exception':
             self._splitter = self._splitter_pedantic
         else:
             self._splitter = self._splitter_lax
@@ -578,7 +578,7 @@ class NumericArray(Array):
         parts = self._splitter(value, config, pos)
         if len(parts) != self._items:
             warn_or_raise(E02, E02, (self._items, len(parts)), config, pos)
-        if config.get('pedantic'):
+        if config.get('verify', 'ignore') == 'exception':
             return self.parse_parts(parts, config, pos)
         else:
             if len(parts) == self._items:
@@ -698,7 +698,7 @@ class FloatingPoint(Numeric):
             self._null_binoutput = self.binoutput(np.asarray(self.null), False)
             self.filter_array = self._filter_null
 
-        if config.get('pedantic'):
+        if config.get('verify', 'ignore') == 'exception':
             self.parse = self._parse_pedantic
         else:
             self.parse = self._parse_permissive
@@ -747,7 +747,7 @@ class FloatingPoint(Numeric):
         elif np.isneginf(value):
             return '-InF'
         # Should never raise
-        vo_raise("Invalid floating point value '{}'".format(value))
+        vo_raise(f"Invalid floating point value '{value}'")
 
     def binoutput(self, value, mask):
         if mask:
@@ -1361,7 +1361,7 @@ def numpy_to_votable_dtype(dtype, shape):
     """
     if dtype.num not in numpy_dtype_to_field_mapping:
         raise TypeError(
-            "{0!r} can not be represented in VOTable".format(dtype))
+            f"{dtype!r} can not be represented in VOTable")
 
     if dtype.char == 'S':
         return {'datatype': 'char',

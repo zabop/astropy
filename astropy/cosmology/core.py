@@ -294,9 +294,9 @@ class FLRW(Cosmology, metaclass=ABCMeta):
     def _namelead(self):
         """ Helper function for constructing __repr__"""
         if self.name is None:
-            return "{0}(".format(self.__class__.__name__)
+            return f"{self.__class__.__name__}("
         else:
-            return "{0}(name=\"{1}\", ".format(self.__class__.__name__,
+            return "{}(name=\"{}\", ".format(self.__class__.__name__,
                                                self.name)
 
     def __repr__(self):
@@ -564,6 +564,7 @@ class FLRW(Cosmology, metaclass=ABCMeta):
         ------
         ValueError
           If Ob0 is None.
+
         Notes
         -----
         This does not include neutrinos, even if non-relativistic
@@ -1789,12 +1790,12 @@ class LambdaCDM(FLRW):
 
             phi_z1 = phi_z(self._Om0, self._Ok0, kappa, y1, A, z1)
             phi_z2 = phi_z(self._Om0, self._Ok0, kappa, y1, A, z2)
-        # Get lower-right 0<b<2 solution in Om, Ol plane.
+        # Get lower-right 0<b<2 solution in Om0, Ode0 plane.
         # Fot the upper-left 0<b<2 solution the Big Bang didn't happen.
-        elif (0 < b) and (b < 2) and self._Om0 > self.Ol0:
-            def phi_z(Om0, Ok0, kappa, y1, A, z):
+        elif (0 < b) and (b < 2) and self._Om0 > self._Ode0:
+            def phi_z(Om0, Ok0, y1, y2, z):
                 return np.arcsin(np.sqrt((y1 - y2) /
-                                         (1 + z) * Om0 / abs(Ok0) + y1))
+                                         ((1 + z) * Om0 / abs(Ok0) + y1)))
 
             yb = cos(acos(1 - b) / 3)
             yc = sqrt(3) * sin(acos(1 - b) / 3)

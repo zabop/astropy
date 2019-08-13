@@ -354,6 +354,7 @@ class TestConvolve1D:
 
         assert_array_almost_equal_nulp(z, (8/3., 4, 8, 12, 8), 10)
 
+
 class TestConvolve2D:
     def test_list(self):
         """
@@ -901,7 +902,7 @@ def test_astropy_convolution_against_scipy():
 
 @pytest.mark.skipif('not HAS_PANDAS')
 def test_regression_6099():
-    wave = np.array((np.linspace(5000, 5100, 10)))
+    wave = np.array(np.linspace(5000, 5100, 10))
     boxcar = 3
     nonseries_result = convolve(wave, np.ones((boxcar,))/boxcar)
 
@@ -943,10 +944,10 @@ def test_uninterpolated_nan_regions(boundary, normalize_kernel):
     image = np.pad(nan_centroid, pad_width=kernel.shape[0]*2, mode='constant',
                    constant_values=1)
     with pytest.warns(AstropyUserWarning,
-                      match="nan_treatment='interpolate', however, NaN values detected "
-                      "post convolution. A contiguous region of NaN values, larger "
-                      "than the kernel size, are present in the input array. "
-                      "Increase the kernel size to avoid this."):
+                      match=r"nan_treatment='interpolate', however, NaN values detected "
+                      r"post convolution. A contiguous region of NaN values, larger "
+                      r"than the kernel size, are present in the input array. "
+                      r"Increase the kernel size to avoid this."):
         result = convolve(image, kernel, boundary=boundary, nan_treatment='interpolate',
                           normalize_kernel=normalize_kernel)
         assert(np.any(np.isnan(result)))

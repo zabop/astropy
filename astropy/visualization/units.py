@@ -33,9 +33,21 @@ def quantity_support(format='latex_inline'):
 
     """
     from astropy import units as u
+    # import Angle just so we have a more or less complete list of Quantity
+    # subclasses loaded - matplotlib needs them all separately!
+    # NOTE: in matplotlib >=3.2, subclasses will be recognized automatically,
+    # and once that becomes our minimum version, we can remove this,
+    # adding just u.Quantity itself to the registry.
+    from astropy.coordinates import Angle  # noqa
 
     from matplotlib import units
     from matplotlib import ticker
+
+    # Get all subclass for Quantity, since matplotlib checks on class,
+    # not subclass.
+    def all_issubclass(cls):
+        return {cls}.union(
+            [s for c in cls.__subclasses__() for s in all_issubclass(c)])
 
     def rad_fn(x, pos=None):
         n = int((x / np.pi) * 2.0 + 0.25)
@@ -46,17 +58,23 @@ def quantity_support(format='latex_inline'):
         elif n == 2:
             return 'π'
         elif n % 2 == 0:
-            return '{0}π'.format(n / 2)
+            return '{}π'.format(n / 2)
         else:
-            return '{0}π/2'.format(n)
+            return f'{n}π/2'
 
     class MplQuantityConverter(units.ConversionInterface):
+
+        _all_issubclass_quantity = all_issubclass(u.Quantity)
+
         def __init__(self):
-            if u.Quantity not in units.registry:
-                units.registry[u.Quantity] = self
-                self._remove = True
-            else:
-                self._remove = False
+
+            # Keep track of original converter in case the context manager is
+            # used in a nested way.
+            self._original_converter = {}
+
+            for cls in self._all_issubclass_quantity:
+                self._original_converter[cls] = units.registry.get(cls)
+                units.registry[cls] = self
 
         @staticmethod
         def axisinfo(unit, axis):
@@ -95,7 +113,10 @@ def quantity_support(format='latex_inline'):
             return self
 
         def __exit__(self, type, value, tb):
-            if self._remove:
-                del units.registry[u.Quantity]
+            for cls in self._all_issubclass_quantity:
+                if self._original_converter[cls] is None:
+                    del units.registry[cls]
+                else:
+                    units.registry[cls] = self._original_converter[cls]
 
     return MplQuantityConverter()

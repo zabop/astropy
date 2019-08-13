@@ -73,7 +73,7 @@ def test_wrong_unit(x_input, y_input):
         x, y = myfunc_args(1*x_unit, 100*u.Joule)  # has to be an unspecified unit
 
     str_to = str(y_target)
-    assert str(e.value) == "Argument 'y' to function 'myfunc_args' must be in units convertible to '{0}'.".format(str_to)
+    assert str(e.value) == f"Argument 'y' to function 'myfunc_args' must be in units convertible to '{str_to}'."
 
 
 def test_not_quantity(x_input, y_input):
@@ -138,7 +138,7 @@ def test_kwarg_wrong_unit(x_input, y_input):
         x, y = myfunc_args(1*x_unit, y=100*u.Joule)
 
     str_to = str(y_target)
-    assert str(e.value) == "Argument 'y' to function 'myfunc_args' must be in units convertible to '{0}'.".format(str_to)
+    assert str(e.value) == f"Argument 'y' to function 'myfunc_args' must be in units convertible to '{str_to}'."
 
 
 def test_kwarg_not_quantity(x_input, y_input):
@@ -281,6 +281,28 @@ def test_default_value_check():
     x = myfunc_args(1*x_unit)
     assert isinstance(x, u.Quantity)
     assert x.unit == x_unit
+
+
+def test_str_unit_typo():
+    @u.quantity_input
+    def myfunc_args(x: "kilograam"):
+        return x
+
+    with pytest.raises(ValueError):
+        result = myfunc_args(u.kg)
+
+
+def test_type_annotations():
+    @u.quantity_input
+    def myfunc_args(x: u.m, y: str):
+        return x, y
+
+    in_quantity = 2 * u.m
+    in_string = "cool string"
+
+    quantity, string = myfunc_args(in_quantity, in_string)
+    assert quantity == in_quantity
+    assert string == in_string
 
 
 def test_args_None():

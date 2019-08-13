@@ -11,9 +11,10 @@ import warnings
 import importlib
 from collections import OrderedDict
 from importlib.util import find_spec
+from functools import wraps
 
 from astropy.config.paths import set_temp_config, set_temp_cache
-from astropy.utils import wraps, find_current_module
+from astropy.utils import find_current_module
 from astropy.utils.exceptions import AstropyWarning, AstropyDeprecationWarning
 
 __all__ = ['TestRunner', 'TestRunnerBase', 'keyword']
@@ -146,11 +147,11 @@ class TestRunnerBase:
 
             # Allow disabling of options in a subclass
             if result is NotImplemented:
-                raise TypeError("run_tests() got an unexpected keyword argument {}".format(keyword))
+                raise TypeError(f"run_tests() got an unexpected keyword argument {keyword}")
 
             # keyword methods must return a list
             if not isinstance(result, list):
-                raise TypeError("{} keyword method must return a list".format(keyword))
+                raise TypeError(f"{keyword} keyword method must return a list")
 
             args += result
 
@@ -223,13 +224,13 @@ class TestRunnerBase:
         else:
             plugins = []
 
-        # If we are running the astropy tests with the astropy plugins handle
-        # the config stuff, otherwise ignore it.
-        if 'astropy.tests.plugins.config' not in plugins:
-            return pytest.main(args=args, plugins=plugins)
-
-        # override the config locations to not make a new directory nor use
-        # existing cache or config
+        # Override the config locations to not make a new directory nor use
+        # existing cache or config. Note that we need to do this here in
+        # addition to in conftest.py - for users running tests interactively
+        # in e.g. IPython, conftest.py would get read in too late, so we need
+        # to do it here - but at the same time the code here doesn't work when
+        # running tests in parallel mode because this uses subprocesses which
+        # don't know about the temporary config/cache.
         astropy_config = tempfile.mkdtemp('astropy_config')
         astropy_cache = tempfile.mkdtemp('astropy_cache')
 
@@ -255,7 +256,7 @@ class TestRunnerBase:
 
         runner = cls(path)
 
-        @wraps(runner.run_tests, ('__doc__',), exclude_args=('self',))
+        @wraps(runner.run_tests, ('__doc__',))
         def test(**kwargs):
             return runner.run_tests(**kwargs)
 
@@ -412,7 +413,7 @@ class TestRunner(TestRunnerBase):
 
         return []
 
-    @keyword(default_value=['astropy.tests.plugins.display', 'astropy.tests.plugins.config'])
+    @keyword(default_value=['astropy.tests.plugins.display'])
     def plugins(self, plugins, kwargs):
         """
         plugins : list, optional
@@ -445,7 +446,7 @@ class TestRunner(TestRunnerBase):
         """
         if pastebin is not None:
             if pastebin in ['failed', 'all']:
-                return ['--pastebin={0}'.format(pastebin)]
+                return [f'--pastebin={pastebin}']
             else:
                 raise ValueError("pastebin should be 'failed' or 'all'")
 
@@ -467,14 +468,14 @@ class TestRunner(TestRunnerBase):
             remote_data = 'none'
         elif remote_data not in ('none', 'astropy', 'any'):
             warnings.warn("The remote_data option should be one of "
-                          "none/astropy/any (found {0}). For backward-compatibility, "
+                          "none/astropy/any (found {}). For backward-compatibility, "
                           "assuming 'any', but you should change the option to be "
                           "one of the supported ones to avoid issues in "
                           "future.".format(remote_data),
                           AstropyDeprecationWarning)
             remote_data = 'any'
 
-        return ['--remote-data={0}'.format(remote_data)]
+        return [f'--remote-data={remote_data}']
 
     @keyword()
     def pep8(self, pep8, kwargs):
@@ -590,7 +591,7 @@ class TestRunner(TestRunnerBase):
             useful for diagnosing sporadic failures.
         """
         if repeat:
-            return ['--repeat={0}'.format(repeat)]
+            return [f'--repeat={repeat}']
 
         return []
 

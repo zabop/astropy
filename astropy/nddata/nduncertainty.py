@@ -326,7 +326,7 @@ class NDUncertainty(metaclass=ABCMeta):
         # Check if the subclass supports correlation
         if not self.supports_correlated:
             if isinstance(correlation, np.ndarray) or correlation != 0:
-                raise ValueError("{0} does not support uncertainty propagation"
+                raise ValueError("{} does not support uncertainty propagation"
                                  " with correlation."
                                  "".format(self.__class__.__name__))
 
@@ -458,6 +458,7 @@ class _VariancePropagationMixin:
     propagation for variance-like uncertainties (standard deviation and inverse
     variance).
     """
+
     def _propagate_add_sub(self, other_uncert, result_data, correlation,
                            subtract=False,
                            to_variance=lambda x: x, from_variance=lambda x: x):
@@ -590,7 +591,7 @@ class _VariancePropagationMixin:
             if (other_uncert.unit and
                 to_variance(1 * other_uncert.unit) !=
                     ((1 * other_uncert.parent_nddata.unit)**2).unit):
-                d_b = to_variance((other_uncert.array * other_uncert.unit)).to(
+                d_b = to_variance(other_uncert.array * other_uncert.unit).to(
                     (1 * other_uncert.parent_nddata.unit)**2).value
             else:
                 d_b = to_variance(other_uncert.array)
@@ -932,5 +933,6 @@ class InverseVariance(_VariancePropagationMixin, NDUncertainty):
                                                   divide=True,
                                                   to_variance=_inverse,
                                                   from_variance=_inverse)
+
     def _data_unit_to_uncertainty_unit(self, value):
         return 1 / value ** 2

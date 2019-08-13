@@ -22,7 +22,7 @@ except OSError:
 else:
     HAS_IERS_A = True
 
-IERS_A_EXCERPT = os.path.join(os.path.dirname(__file__), 'iers_a_excerpt')
+IERS_A_EXCERPT = os.path.join(os.path.dirname(__file__), 'data', 'iers_a_excerpt')
 
 
 class TestBasic():
@@ -152,7 +152,7 @@ class TestIERS_AExcerpt():
         assert len(iers_tab[:2]) == 2
 
 
-@pytest.mark.skipif(str('not HAS_IERS_A'))
+@pytest.mark.skipif('not HAS_IERS_A')
 class TestIERS_A():
 
     def test_simple(self):
@@ -184,8 +184,8 @@ class TestIERS_Auto():
         """
         self.N = 40
         self.ame = 30.0
-        self.iers_a_file_1 = os.path.join(os.path.dirname(__file__), 'finals2000A-2016-02-30-test')
-        self.iers_a_file_2 = os.path.join(os.path.dirname(__file__), 'finals2000A-2016-04-30-test')
+        self.iers_a_file_1 = os.path.join(os.path.dirname(__file__), 'data', 'finals2000A-2016-02-30-test')
+        self.iers_a_file_2 = os.path.join(os.path.dirname(__file__), 'data', 'finals2000A-2016-04-30-test')
         self.iers_a_url_1 = os.path.normpath('file://' + os.path.abspath(self.iers_a_file_1))
         self.iers_a_url_2 = os.path.normpath('file://' + os.path.abspath(self.iers_a_file_2))
         self.t = Time.now() + TimeDelta(10, format='jd') * np.arange(self.N)
@@ -267,7 +267,7 @@ class TestIERS_Auto():
             with catch_warnings(iers.IERSStaleWarning) as warns:
                 with pytest.raises(ValueError) as err:
                     dat.ut1_utc(Time(60000, format='mjd').jd)
-            assert 'interpolating from IERS_Auto using predictive values' in str(err)
+            assert 'interpolating from IERS_Auto using predictive values' in str(err.value)
             assert len(warns) == 1
             assert 'IERS_Auto predictive values are older' in str(warns[0].message)
 

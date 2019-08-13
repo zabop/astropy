@@ -25,30 +25,33 @@ piece of code needs the same equivalencies, one can set them for a
 Built-in equivalencies
 ======================
 
-Parallax Units
---------------
+How to Convert Parallax to Distance
+-----------------------------------
 
-:func:`~astropy.units.equivalencies.parallax` is a function that returns an
-equivalency list to handle conversions between angles and length.
+The length unit *parsec* is defined such that a star one parsec away
+will exhibit a 1-arcsecond parallax. (Think of it as a contraction
+between *parallax* and *arcsecond*.)
 
-Length and angles are not normally convertible, so
-:meth:`~astropy.units.core.UnitBase.to` raises an exception::
+The :func:`~astropy.units.equivalencies.parallax` function handles
+conversions between parallax angles and length.
+
+In general, you should not be able to change units of length into
+angles or vice versa, so :meth:`~astropy.units.core.UnitBase.to`
+raises an exception::
 
   >>> from astropy import units as u
-  >>> (8.0 * u.arcsec).to(u.parsec)  # doctest: +IGNORE_EXCEPTION_DETAIL
+  >>> (0.8 * u.arcsec).to(u.parsec)  # doctest: +IGNORE_EXCEPTION_DETAIL
   Traceback (most recent call last):
     ...
   UnitConversionError: 'arcsec' (angle) and 'pc' (length) are not convertible
 
-However, when passing the result of
-:func:`~astropy.units.equivalencies.parallax` as the third argument to the
-:meth:`~astropy.units.core.UnitBase.to` method, angles can be converted
-into units of length (and vice versa).
+To trigger the conversion between parallax angle and distance, provide
+:func:`~astropy.units.equivalencies.parallax` as the optional keyword
+argument (``equivalencies=``) to the
+:meth:`~astropy.units.core.UnitBase.to` method.
 
-    >>> (8.0 * u.arcsec).to(u.parsec, equivalencies=u.parallax())
-    <Quantity 0.125 pc>
-    >>> u.AU.to(u.arcminute, equivalencies=u.parallax())
-    3437.7467707580054
+    >>> (0.8 * u.arcsec).to(u.parsec, equivalencies=u.parallax())
+    <Quantity 1.25 pc>
 
 Angles as Dimensionless Units
 -----------------------------
@@ -244,21 +247,6 @@ You can also convert between ``Jy/beam`` and ``K`` by specifying the beam area::
     >>> (1*u.Jy/u.beam).to(u.K, u.brightness_temperature(freq, beam_area=omega_B))  # doctest: +FLOAT_CMP
     <Quantity 19.553932298231704 K>
 
-Finally, there is an equivalency that allows you to convert from Jansky to Kelvin.
-In this case, the Jansky unit is *implicitly* Jansky/beam.  Because of the implicit
-assumed per beam unit, this approach is deprecated.::
-
-    >>> import numpy as np
-    >>> beam_fwhm = 50*u.arcsec
-    >>> fwhm_to_sigma = 1. / (8 * np.log(2))**0.5
-    >>> beam_sigma = beam_fwhm * fwhm_to_sigma
-    >>> omega_B = 2 * np.pi * beam_sigma**2
-    >>> freq = 5 * u.GHz
-    >>> # DEPRECATED
-    >>> (1*u.Jy).to(u.K, u.brightness_temperature(freq, beam_area=omega_B))  # doctest: +FLOAT_CMP
-    <Quantity 19.553932298231704 K>
-
-
 Beam Equivalency
 ----------------
 
@@ -411,6 +399,23 @@ scaling:
     <Magnitude 12. mag(1 / littleh2)>
     >>> mag_quantity.to(u.mag, u.with_H0(H0_70))  # doctest: +FLOAT_CMP
     <Quantity 11.2254902 mag>
+
+Temperature Equivalency
+-----------------------
+
+The :func:`~astropy.units.temperature` equivalency allows conversion
+between the Celsius, Fahrenheit, and Kelvin. For example::
+
+    >>> import astropy.units as u
+    >>> temp_C = 0 * u.Celsius
+    >>> temp_Kelvin = temp_C.to(u.K, equivalencies=u.temperature())
+    >>> temp_Kelvin  # doctest: +FLOAT_CMP
+    <Quantity 273.15 K>
+    >>> temp_F = temp_C.to(u.imperial.deg_F, equivalencies=u.temperature())
+    >>> temp_F  # doctest: +FLOAT_CMP
+    <Quantity 32. deg_F>
+
+.. note:: You can also use ``u.deg_C`` instead of ``u.Celsius``.
 
 
 Writing new equivalencies

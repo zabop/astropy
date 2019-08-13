@@ -53,7 +53,7 @@ plot_pre_code = ""
 # -- General configuration ----------------------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
-#needs_sphinx = '1.1'
+needs_sphinx = '1.7'
 
 # To perform a Sphinx version check that needs to be more specific than
 # major.minor, call `check_sphinx_version("x.y.z")` here.
@@ -66,8 +66,8 @@ check_sphinx_version("1.2.1")
 del intersphinx_mapping['astropy']
 
 # add any custom intersphinx for astropy
-intersphinx_mapping['pytest'] = ('https://docs.pytest.org/en/stable/', None)
-intersphinx_mapping['ipython'] = ('http://ipython.readthedocs.io/en/stable/', None)
+intersphinx_mapping['pytest'] = ('https://pytest.readthedocs.io/en/stable/', None)
+intersphinx_mapping['ipython'] = ('https://ipython.readthedocs.io/en/stable/', None)
 intersphinx_mapping['pandas'] = ('http://pandas.pydata.org/pandas-docs/stable/', None)
 intersphinx_mapping['sphinx_automodapi'] = ('https://sphinx-automodapi.readthedocs.io/en/stable/', None)
 intersphinx_mapping['packagetemplate'] = ('http://docs.astropy.org/projects/package-template/en/latest/', None)
@@ -222,9 +222,27 @@ try:
 
 except ImportError:
     def setup(app):
-        app.warn('The sphinx_gallery extension is not installed, so the '
-                 'gallery will not be built.  You will probably see '
-                 'additional warnings about undefined references due '
-                 'to this.')
+        msg = ('The sphinx_gallery extension is not installed, so the '
+               'gallery will not be built.  You will probably see '
+               'additional warnings about undefined references due '
+               'to this.')
+        try:
+            app.warn(msg)
+        except AttributeError:
+            # Sphinx 1.6+
+            from sphinx.util import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(msg)
 
+
+# -- Options for linkcheck output -------------------------------------------
+linkcheck_retry = 5
+linkcheck_ignore = ['https://journals.aas.org/manuscript-preparation/',
+                    r'https://github\.com/astropy/astropy/(?:issues|pull)/\d+']
+linkcheck_timeout = 180
 linkcheck_anchors = False
+
+# Add any extra paths that contain custom files (such as robots.txt or
+# .htaccess) here, relative to this directory. These files are copied
+# directly to the root of the documentation.
+html_extra_path = ['robots.txt']

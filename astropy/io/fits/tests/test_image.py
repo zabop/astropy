@@ -13,15 +13,14 @@ import numpy as np
 from numpy.testing import assert_equal
 
 from astropy.io import fits
-from astropy.utils.exceptions import AstropyPendingDeprecationWarning
-from astropy.tests.helper import raises, catch_warnings, ignore_warnings
+from astropy.tests.helper import catch_warnings, ignore_warnings
 from astropy.io.fits.hdu.compressed import SUBTRACTIVE_DITHER_1, DITHER_SEED_CHECKSUM
 from .test_table import comparerecords
 
 from . import FitsTestCase
 
 try:
-    import scipy  # pylint: disable=W0611
+    import scipy  # noqa
 except ImportError:
     HAS_SCIPY = False
 else:
@@ -213,7 +212,6 @@ class TestImageFunctions(FitsTestCase):
             fits.PrimaryHDU(data=b[::2, ::2]).writeto(fd)
         np.testing.assert_array_equal(fits.getdata(aafits), a[::2, ::2])
         np.testing.assert_array_equal(fits.getdata(bbfits), a[::2, ::2])
-
 
     def test_primary_with_extname(self):
         """Regression test for https://aeon.stsci.edu/ssb/trac/pyfits/ticket/151
@@ -470,6 +468,7 @@ class TestImageFunctions(FitsTestCase):
         assert np.array_equal(fs[0].section[..., ::2], dat[..., ::2])
         assert np.array_equal(fs[0].section[..., [1, 2, 4], 3],
                               dat[..., [1, 2, 4], 3])
+        fs.close()
 
     def test_section_data_single(self):
         a = np.array([1])
@@ -483,6 +482,7 @@ class TestImageFunctions(FitsTestCase):
         assert np.array_equal(sec[...], dat[...])
         assert np.array_equal(sec[..., 0], dat[..., 0])
         assert np.array_equal(sec[0, ...], dat[0, ...])
+        hdul.close()
 
     def test_section_data_square(self):
         a = np.arange(4).reshape(2, 2)
@@ -505,6 +505,7 @@ class TestImageFunctions(FitsTestCase):
         assert (d.section[0:2, 0:1] == dat[0:2, 0:1]).all()
         assert (d.section[0:1, 0:2] == dat[0:1, 0:2]).all()
         assert (d.section[0:2, 0:2] == dat[0:2, 0:2]).all()
+        hdul.close()
 
     def test_section_data_cube(self):
         a = np.arange(18).reshape(2, 3, 3)
@@ -634,6 +635,7 @@ class TestImageFunctions(FitsTestCase):
         assert (d.section[1:2, 1:3, 1:2] == dat[1:2, 1:3, 1:2]).all()
         assert (d.section[1:2, 1:3, 1:3] == dat[1:2, 1:3, 1:3]).all()
         assert (d.section[1:2, 1:3, 2:3] == dat[1:2, 1:3, 2:3]).all()
+        hdul.close()
 
     def test_section_data_four(self):
         a = np.arange(256).reshape(4, 4, 4, 4)
@@ -652,6 +654,7 @@ class TestImageFunctions(FitsTestCase):
         assert (d.section[:, :, 0, :] == dat[:, :, 0, :]).all()
         assert (d.section[:, 1, 0, :] == dat[:, 1, 0, :]).all()
         assert (d.section[:, :, :, 1] == dat[:, :, :, 1]).all()
+        hdul.close()
 
     def test_section_data_scaled(self):
         """
@@ -677,6 +680,7 @@ class TestImageFunctions(FitsTestCase):
         assert (d.section[0:2, 0:1] == dat[0:2, 0:1]).all()
         assert (d.section[0:1, 0:2] == dat[0:1, 0:2]).all()
         assert (d.section[0:2, 0:2] == dat[0:2, 0:2]).all()
+        hdul.close()
 
         # Test without having accessed the full data first
         hdul = fits.open(self.data('scale.fits'))
@@ -695,12 +699,14 @@ class TestImageFunctions(FitsTestCase):
         assert (d.section[0:1, 0:2] == dat[0:1, 0:2]).all()
         assert (d.section[0:2, 0:2] == dat[0:2, 0:2]).all()
         assert not d._data_loaded
+        hdul.close()
 
     def test_do_not_scale_image_data(self):
-        hdul = fits.open(self.data('scale.fits'), do_not_scale_image_data=True)
-        assert hdul[0].data.dtype == np.dtype('>i2')
-        hdul = fits.open(self.data('scale.fits'))
-        assert hdul[0].data.dtype == np.dtype('float32')
+        with fits.open(self.data('scale.fits'), do_not_scale_image_data=True) as hdul:
+            assert hdul[0].data.dtype == np.dtype('>i2')
+
+        with fits.open(self.data('scale.fits')) as hdul:
+            assert hdul[0].data.dtype == np.dtype('float32')
 
     def test_append_uint_data(self):
         """Regression test for https://aeon.stsci.edu/ssb/trac/pyfits/ticket/56
@@ -712,8 +718,9 @@ class TestImageFunctions(FitsTestCase):
                      dtype='uint8'))
         d = np.zeros([100, 100]).astype('uint16')
         fits.append(self.temp('test_new.fits'), data=d)
-        f = fits.open(self.temp('test_new.fits'), uint=True)
-        assert f[1].data.dtype == 'uint16'
+
+        with fits.open(self.temp('test_new.fits'), uint=True) as f:
+            assert f[1].data.dtype == 'uint16'
 
     def test_scale_with_explicit_bzero_bscale(self):
         """
@@ -740,24 +747,24 @@ class TestImageFunctions(FitsTestCase):
             if int_size == 64:
                 max_uint = np.uint64(int_size)
 
-            dtype = 'uint{}'.format(int_size)
+            dtype = f'uint{int_size}'
             arr = np.empty(100, dtype=dtype)
             arr.fill(max_uint)
             arr -= np.arange(100, dtype=dtype)
 
             uint_hdu = fits.PrimaryHDU(data=arr)
             assert np.all(uint_hdu.data == arr)
-            assert uint_hdu.data.dtype.name == 'uint{}'.format(int_size)
+            assert uint_hdu.data.dtype.name == f'uint{int_size}'
             assert 'BZERO' in uint_hdu.header
             assert uint_hdu.header['BZERO'] == (2 ** (int_size - 1))
 
-            filename = 'uint{}.fits'.format(int_size)
+            filename = f'uint{int_size}.fits'
             uint_hdu.writeto(self.temp(filename))
 
             with fits.open(self.temp(filename), uint=True) as hdul:
                 new_uint_hdu = hdul[0]
                 assert np.all(new_uint_hdu.data == arr)
-                assert new_uint_hdu.data.dtype.name == 'uint{}'.format(int_size)
+                assert new_uint_hdu.data.dtype.name == f'uint{int_size}'
                 assert 'BZERO' in new_uint_hdu.header
                 assert new_uint_hdu.header['BZERO'] == (2 ** (int_size - 1))
 
@@ -831,8 +838,8 @@ class TestImageFunctions(FitsTestCase):
         hdu.header['BLANK'] = 999
         hdu.writeto(self.temp('test_new.fits'))
 
-        hdul = fits.open(self.temp('test_new.fits'))
-        assert np.isnan(hdul[1].data[1]).all()
+        with fits.open(self.temp('test_new.fits')) as hdul:
+            assert np.isnan(hdul[1].data[1]).all()
 
     def test_invalid_blanks(self):
         """
@@ -895,7 +902,7 @@ class TestImageFunctions(FitsTestCase):
             data = hdul[0].data
             assert np.isnan(data[0])
             with pytest.warns(fits.verify.VerifyWarning,
-                              match="Invalid 'BLANK' keyword in header"):
+                              match=r"Invalid 'BLANK' keyword in header"):
                 hdul.writeto(self.temp('test2.fits'))
 
         # Now reopen the newly written file.  It should not have a 'BLANK'
@@ -929,9 +936,9 @@ class TestImageFunctions(FitsTestCase):
         hdu.header['BZERO'] = 1.0
         hdu.writeto(self.temp('test_new.fits'))
 
-        hdul = fits.open(self.temp('test_new.fits'))
-        arr += 1
-        assert (hdul[1].data == arr).all()
+        with fits.open(self.temp('test_new.fits')) as hdul:
+            arr += 1
+            assert (hdul[1].data == arr).all()
 
     def test_rewriting_large_scaled_image(self):
         """Regression test for https://aeon.stsci.edu/ssb/trac/pyfits/ticket/84 and
@@ -1043,6 +1050,7 @@ class TestImageFunctions(FitsTestCase):
         assert hdul[0].header['BITPIX'] == -32
         assert 'BZERO' not in hdul[0].header
         assert 'BSCALE' not in hdul[0].header
+        hdul.close()
 
     def test_scale_back(self):
         """A simple test for https://aeon.stsci.edu/ssb/trac/pyfits/ticket/120
@@ -1098,8 +1106,8 @@ class TestImageFunctions(FitsTestCase):
         data = np.arange(100, dtype=np.float64)
         hdu = fits.PrimaryHDU(data)
         hdu.header['BLANK'] = 'nan'
-        with pytest.warns(fits.verify.VerifyWarning, match="Invalid value for "
-                          "'BLANK' keyword in header: 'nan'"):
+        with pytest.warns(fits.verify.VerifyWarning, match=r"Invalid value for "
+                          r"'BLANK' keyword in header: 'nan'"):
             hdu.writeto(self.temp('test.fits'))
 
         with catch_warnings() as w:
@@ -1392,6 +1400,7 @@ class TestCompressedImage(FitsTestCase):
         assert hdul[1].header['BITPIX'] == -32
         assert 'BZERO' not in hdul[1].header
         assert 'BSCALE' not in hdul[1].header
+        hdul.close()
 
     def test_write_comp_hdu_direct_from_existing(self):
         with fits.open(self.data('comp.fits')) as hdul:
@@ -1611,7 +1620,7 @@ class TestCompressedImage(FitsTestCase):
                 hdr[keyword] = value
                 assert len(w) == 1
                 assert str(w[0].message).startswith(
-                        "Keyword {!r} is reserved".format(keyword))
+                        f"Keyword {keyword!r} is reserved")
                 assert keyword not in hdr
 
         with fits.open(self.data('comp.fits')) as hdul:
@@ -1878,14 +1887,14 @@ def test_comphdu_bscale(tmpdir):
 
     # fitsverify (based on cfitsio) should fail on this file, only seeing the
     # first HDU.
-    hdus = fits.open(filename1)
-    hdus[1] = fits.CompImageHDU(data=hdus[1].data.astype(np.uint32),
-                                header=hdus[1].header)
-    hdus.writeto(filename2)
+    with fits.open(filename1) as hdus:
+        hdus[1] = fits.CompImageHDU(data=hdus[1].data.astype(np.uint32),
+                                    header=hdus[1].header)
+        hdus.writeto(filename2)
 
     # open again and verify
-    hdus = fits.open(filename2)
-    hdus[1].verify('exception')
+    with fits.open(filename2) as hdus:
+        hdus[1].verify('exception')
 
 
 def test_scale_implicit_casting():
@@ -1909,8 +1918,9 @@ def test_bzero_implicit_casting_compressed():
     filename = os.path.join(os.path.dirname(__file__),
                             'data', 'compressed_float_bzero.fits')
 
-    hdu = fits.open(filename)[1]
-    hdu.data
+    with fits.open(filename) as hdul:
+        hdu = hdul[1]
+        hdu.data
 
 
 def test_bzero_mishandled_info(tmpdir):
@@ -1922,8 +1932,8 @@ def test_bzero_mishandled_info(tmpdir):
     hdu = fits.ImageHDU(np.zeros((10, 10)))
     hdu.header['BZERO'] = 10
     hdu.writeto(filename, overwrite=True)
-    hdul = fits.open(filename)
-    hdul.info()
+    with fits.open(filename) as hdul:
+        hdul.info()
 
 
 def test_image_write_readonly(tmpdir):

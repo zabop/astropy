@@ -13,6 +13,8 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord, Latitude, Longitude, Angle, EarthLocation
 from astropy.time import Time, TimeDelta
 from astropy.units.quantity import QuantityInfo
+from astropy.utils.exceptions import AstropyUserWarning
+from astropy.utils.data import get_pkg_data_filename
 
 try:
     import h5py
@@ -53,6 +55,35 @@ def test_write_nopath(tmpdir):
 
 
 @pytest.mark.skipif('not HAS_H5PY')
+def test_write_nopath(tmpdir):
+    test_file = str(tmpdir.join('test.hdf5'))
+    t1 = Table()
+    t1.add_column(Column(name='a', data=[1, 2, 3]))
+
+    with catch_warnings() as warns:
+        t1.write(test_file)
+
+    assert np.any([str(w.message).startswith(
+        "table path was not set via the path= argument")
+                   for w in warns])
+    t1 = Table.read(test_file, path='__astropy_table__')
+
+
+@pytest.mark.skipif('not HAS_H5PY')
+def test_write_nopath_nonempty(tmpdir):
+    test_file = str(tmpdir.join('test.hdf5'))
+    t1 = Table()
+    t1.add_column(Column(name='a', data=[1, 2, 3]))
+
+    t1.write(test_file, path='bubu')
+
+    with pytest.raises(ValueError) as exc:
+        t1.write(test_file, append=True)
+
+    assert 'table path should always be set via the path=' in exc.value.args[0]
+
+
+@pytest.mark.skipif('not HAS_H5PY')
 def test_read_notable_nopath(tmpdir):
     test_file = str(tmpdir.join('test.hdf5'))
     h5py.File(test_file, 'w').close()  # create empty file
@@ -66,8 +97,27 @@ def test_read_nopath(tmpdir):
     test_file = str(tmpdir.join('test.hdf5'))
     t1 = Table()
     t1.add_column(Column(name='a', data=[1, 2, 3]))
-    t1.write(test_file, path='the_table')
-    t2 = Table.read(test_file)
+    t1.write(test_file, path="the_table")
+    with catch_warnings(AstropyUserWarning) as warning_lines:
+        t2 = Table.read(test_file)
+        assert not np.any(["path= was not sp" in str(wl.message)
+                           for wl in warning_lines])
+
+    assert np.all(t1['a'] == t2['a'])
+
+
+@pytest.mark.skipif('not HAS_H5PY')
+def test_read_nopath_multi_tables(tmpdir):
+    test_file = str(tmpdir.join('test.hdf5'))
+    t1 = Table()
+    t1.add_column(Column(name='a', data=[1, 2, 3]))
+    t1.write(test_file, path="the_table")
+    t1.write(test_file, path="the_table_but_different", append=True,
+             overwrite=True)
+    with pytest.warns(AstropyUserWarning,
+                      match=r"path= was not specified but multiple tables"):
+        t2 = Table.read(test_file)
+
     assert np.all(t1['a'] == t2['a'])
 
 
@@ -407,8 +457,12 @@ def test_preserve_serialized(tmpdir):
 
 
 @pytest.mark.skipif('not HAS_H5PY or not HAS_YAML')
-def test_preserve_serialized_compatibility_mode(tmpdir):
-    test_file = str(tmpdir.join('test.hdf5'))
+def test_preserve_serialized_old_meta_format(tmpdir):
+    """Test the old meta format
+
+    Only for some files created prior to v4.0, in compatibility mode.
+    """
+    test_file = get_pkg_data_filename('data/old_meta_example.hdf5')
 
     t1 = Table()
     t1['a'] = Column(data=[1, 2, 3], unit="s")
@@ -418,13 +472,6 @@ def test_preserve_serialized_compatibility_mode(tmpdir):
     t1['a'].description = 'A column'
     t1.meta['b'] = 1
     t1.meta['c'] = {"c0": [0, 1]}
-
-    with catch_warnings() as w:
-        t1.write(test_file, path='the_table', serialize_meta=True,
-                 overwrite=True, compatibility_mode=True)
-
-    assert str(w[0].message).startswith(
-        "compatibility mode for writing is deprecated")
 
     t2 = Table.read(test_file, path='the_table')
 
@@ -459,6 +506,7 @@ def test_preserve_serialized_in_complicated_path(tmpdir):
     assert t1['a'].meta == t2['a'].meta
     assert t1.meta == t2.meta
 
+
 @pytest.mark.skipif('not HAS_H5PY or not HAS_YAML')
 def test_metadata_very_large(tmpdir):
     """Test that very large datasets work, now!"""
@@ -486,25 +534,6 @@ def test_metadata_very_large(tmpdir):
     assert t1.meta == t2.meta
 
 
-@pytest.mark.skipif('not HAS_H5PY or not HAS_YAML')
-def test_metadata_very_large_fails_compatibility_mode(tmpdir):
-    """Test that very large metadata do not work in compatibility mode."""
-    test_file = str(tmpdir.join('test.hdf5'))
-    t1 = Table()
-    t1['a'] = Column(data=[1, 2, 3])
-    t1.meta["meta"] = "0" * (2 ** 16 + 1)
-    with catch_warnings() as w:
-        t1.write(test_file, path='the_table', serialize_meta=True,
-                 overwrite=True, compatibility_mode=True)
-    assert len(w) == 2
-
-    # Error message slightly changed in h5py 2.7.1, thus the 2part assert
-    assert str(w[1].message).startswith(
-        "Attributes could not be written to the output HDF5 "
-        "file: Unable to create attribute ")
-    assert "bject header message is too large" in str(w[1].message)
-
-
 @pytest.mark.skipif('not HAS_H5PY')
 def test_skip_meta(tmpdir):
 
@@ -524,7 +553,7 @@ def test_skip_meta(tmpdir):
         t1.write(test_file, path='the_table')
     assert len(w) == 1
     assert str(w[0].message).startswith(
-        "Attribute `f` of type {0} cannot be written to HDF5 files - skipping".format(type(t1.meta['f'])))
+        "Attribute `f` of type {} cannot be written to HDF5 files - skipping".format(type(t1.meta['f'])))
 
 
 @pytest.mark.skipif('not HAS_H5PY or not HAS_YAML')
@@ -538,7 +567,8 @@ def test_fail_meta_serialize(tmpdir):
 
     with pytest.raises(Exception) as err:
         t1.write(test_file, path='the_table', serialize_meta=True)
-    assert "cannot represent an object: <class 'str'>" in str(err)
+    assert "cannot represent an object" in str(err.value)
+    assert "<class 'str'>" in str(err.value)
 
 
 @pytest.mark.skipif('not HAS_H5PY')
@@ -625,6 +655,7 @@ def assert_objects_equal(obj1, obj2, attrs, compare_class=True):
 
 # Testing HDF5 table read/write with mixins.  This is mostly
 # copied from FITS mixin testing.
+
 
 el = EarthLocation(x=1 * u.km, y=3 * u.km, z=5 * u.km)
 el2 = EarthLocation(x=[1, 2] * u.km, y=[3, 4] * u.km, z=[5, 6] * u.km)
@@ -796,7 +827,7 @@ def test_error_for_mixins_but_no_yaml(tmpdir):
     t = Table([mixin_cols['sc']])
     with pytest.raises(TypeError) as err:
         t.write(filename, path='root', serialize_meta=True)
-    assert "cannot write type SkyCoord column 'col0' to HDF5 without PyYAML" in str(err)
+    assert "cannot write type SkyCoord column 'col0' to HDF5 without PyYAML" in str(err.value)
 
 
 @pytest.mark.skipif('not HAS_YAML or not HAS_H5PY')
@@ -821,7 +852,7 @@ def test_round_trip_masked_table_default(tmpdir):
     t.write(filename, format='hdf5', path='root', serialize_meta=True)
 
     t2 = Table.read(filename)
-    assert t2.masked is True
+    assert t2.masked is False
     assert t2.colnames == t.colnames
     for name in t2.colnames:
         assert np.all(t2[name].mask == t[name].mask)

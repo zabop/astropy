@@ -18,7 +18,8 @@ from astropy.utils.decorators import deprecated_renamed_argument
 from astropy import units as u
 from astropy.nddata import support_nddata
 from astropy.modeling.core import _make_arithmetic_operator, BINARY_OPERATORS
-from astropy.modeling.core import _CompoundModelMeta
+from astropy.modeling.core import CompoundModel
+from astropy.modeling.core import SPECIAL_OPERATORS
 from .utils import KernelSizeError, has_even_axis, raise_even_kernel_exception
 
 LIBRARY_PATH = os.path.dirname(__file__)
@@ -53,6 +54,7 @@ _convolveNd_c.argtypes = [ndpointer(ctypes.c_double, flags={"C_CONTIGUOUS", "WRI
 __doctest_skip__ = ['*']
 
 BOUNDARY_OPTIONS = [None, 'fill', 'wrap', 'extend']
+
 
 def _copy_input_if_needed(input, dtype=float, order='C', nan_treatment=None, mask=None, fill_value=None):
     # Alias input
@@ -91,6 +93,7 @@ def _copy_input_if_needed(input, dtype=float, order='C', nan_treatment=None, mas
         raise TypeError('input should be a Numpy array or something '
                         'convertible into a float array', e)
     return output
+
 
 @support_nddata(data='array')
 def convolve(array, kernel, boundary='fill', fill_value=0.,
@@ -171,7 +174,7 @@ def convolve(array, kernel, boundary='fill', fill_value=0.,
     '''
 
     if boundary not in BOUNDARY_OPTIONS:
-        raise ValueError("Invalid boundary option: must be one of {0}"
+        raise ValueError("Invalid boundary option: must be one of {}"
                          .format(BOUNDARY_OPTIONS))
 
     if nan_treatment not in ('interpolate', 'fill'):
@@ -274,7 +277,7 @@ def convolve(array, kernel, boundary='fill', fill_value=0.,
 
         if kernel_sum < 1. / MAX_NORMALIZATION or kernel_sums_to_zero:
             raise ValueError("The kernel can't be normalized, because its sum is "
-                            "close to zero. The sum of the given kernel is < {0}"
+                            "close to zero. The sum of the given kernel is < {}"
                             .format(1. / MAX_NORMALIZATION))
 
     # Mark the NaN values so we can replace them later if interpolate_nan is
@@ -602,7 +605,7 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
     if normalize_kernel is True:
         if kernel.sum() < 1. / MAX_NORMALIZATION:
             raise Exception("The kernel can't be normalized, because its sum is "
-                            "close to zero. The sum of the given kernel is < {0}"
+                            "close to zero. The sum of the given kernel is < {}"
                             .format(1. / MAX_NORMALIZATION))
         kernel_scale = kernel.sum()
         normalized_kernel = kernel / kernel_scale
@@ -638,7 +641,7 @@ def convolve_fft(array, kernel, boundary='fill', fill_value=0.,
     elif boundary == 'fill':
         # create a boundary region at least as large as the kernel
         if psf_pad is False:
-            warnings.warn("psf_pad was set to {0}, which overrides the "
+            warnings.warn("psf_pad was set to {}, which overrides the "
                           "boundary='fill' setting.".format(psf_pad),
                           AstropyUserWarning)
         else:
@@ -852,10 +855,10 @@ def convolve_models(model, kernel, mode='convolve_fft', **kwargs):
     """
 
     if mode == 'convolve_fft':
-        BINARY_OPERATORS['convolve_fft'] = _make_arithmetic_operator(partial(convolve_fft, **kwargs))
+        SPECIAL_OPERATORS['convolve_fft'] = partial(convolve_fft, **kwargs)
     elif mode == 'convolve':
-        BINARY_OPERATORS['convolve'] = _make_arithmetic_operator(partial(convolve, **kwargs))
+        SPECIAL_OPERATORS['convolve'] = partial(convolve, **kwargs)
     else:
-        raise ValueError('Mode {} is not supported.'.format(mode))
+        raise ValueError(f'Mode {mode} is not supported.')
 
-    return _CompoundModelMeta._from_operator(mode, model, kernel)
+    return CompoundModel(mode, model, kernel)

@@ -32,7 +32,7 @@ RA = 1.0 * u.deg
 DEC = 2.0 * u.deg
 C_ICRS = ICRS(RA, DEC)
 C_FK5 = C_ICRS.transform_to(FK5)
-J2001 = Time('J2001', scale='utc')
+J2001 = Time('J2001')
 
 
 def allclose(a, b, rtol=0.0, atol=None):
@@ -147,7 +147,7 @@ def test_coord_init_string():
 
     with pytest.raises(ValueError) as err:
         SkyCoord('1d 2d 3d')
-    assert "Cannot parse first argument data" in str(err)
+    assert "Cannot parse first argument data" in str(err.value)
 
     sc1 = SkyCoord('8 00 00 +5 00 00.0', unit=(u.hour, u.deg), frame='icrs')
     assert isinstance(sc1, SkyCoord)
@@ -232,7 +232,7 @@ def test_coord_init_unit():
     for unit in ('deg,deg,deg,deg', [u.deg, u.deg, u.deg, u.deg], None):
         with pytest.raises(ValueError) as err:
             SkyCoord(1, 2, unit=unit)
-        assert 'Unit keyword must have one to three unit values' in str(err)
+        assert 'Unit keyword must have one to three unit values' in str(err.value)
 
     for unit in ('m', (u.m, u.deg), ''):
         with pytest.raises(u.UnitsError) as err:
@@ -253,11 +253,11 @@ def test_coord_init_list():
 
     with pytest.raises(ValueError) as err:
         SkyCoord(['1d 2d 3d'])
-    assert "Cannot parse first argument data" in str(err)
+    assert "Cannot parse first argument data" in str(err.value)
 
     with pytest.raises(ValueError) as err:
         SkyCoord([('1d', '2d', '3d')])
-    assert "Cannot parse first argument data" in str(err)
+    assert "Cannot parse first argument data" in str(err.value)
 
     sc = SkyCoord([1 * u.deg, 1 * u.deg], [2 * u.deg, 2 * u.deg])
     assert allclose(sc.ra, Angle('1d'))
@@ -265,7 +265,7 @@ def test_coord_init_list():
 
     with pytest.raises(ValueError) as err:
         SkyCoord([1 * u.deg, 2 * u.deg])  # this list is taken as RA w/ missing dec
-    assert "One or more elements of input sequence does not have a length" in str(err)
+    assert "One or more elements of input sequence does not have a length" in str(err.value)
 
 
 def test_coord_init_array():
@@ -296,7 +296,7 @@ def test_coord_init_representation():
 
     with pytest.raises(ValueError) as err:
         SkyCoord(coord, frame='icrs', ra='1d')
-    assert "conflicts with keyword argument 'ra'" in str(err)
+    assert "conflicts with keyword argument 'ra'" in str(err.value)
 
     coord = CartesianRepresentation(1 * u.one, 2 * u.one, 3 * u.one)
     sc = SkyCoord(coord, frame='icrs')
@@ -328,7 +328,7 @@ def test_frame_init():
 
     with pytest.raises(ValueError) as err:
         SkyCoord(C_ICRS, frame='galactic')
-    assert 'Cannot override frame=' in str(err)
+    assert 'Cannot override frame=' in str(err.value)
 
 
 def test_attr_inheritance():
@@ -383,7 +383,7 @@ def test_attr_conflicts():
     # Not OK if attrs don't match
     with pytest.raises(ValueError) as err:
         SkyCoord(sc, equinox='J1999', obstime='J2002')
-    assert "Coordinate attribute 'obstime'=" in str(err)
+    assert "Coordinate attribute 'obstime'=" in str(err.value)
 
     # Same game but with fk4 which has equinox and obstime frame attrs
     sc = SkyCoord(1, 2, frame='fk4', unit='deg', equinox='J1999', obstime='J2001')
@@ -394,12 +394,12 @@ def test_attr_conflicts():
     # Not OK if SkyCoord attrs don't match
     with pytest.raises(ValueError) as err:
         SkyCoord(sc, equinox='J1999', obstime='J2002')
-    assert "Frame attribute 'obstime' has conflicting" in str(err)
+    assert "Frame attribute 'obstime' has conflicting" in str(err.value)
 
     # Not OK because sc.frame has different attrs
     with pytest.raises(ValueError) as err:
         SkyCoord(sc.frame, equinox='J1999', obstime='J2002')
-    assert "Frame attribute 'obstime' has conflicting" in str(err)
+    assert "Frame attribute 'obstime' has conflicting" in str(err.value)
 
 
 def test_frame_attr_getattr():
@@ -626,7 +626,7 @@ def test_directional_offset_by():
                 SkyCoord(np.linspace(359,0,npoints),np.linspace(-90, 90,npoints),
                          unit=u.deg, frame='icrs'),
                 SkyCoord(np.linspace(-3,3,npoints),np.linspace(-90, 90,npoints),
-                         unit=(u.rad, u.deg), frame='barycentrictrueecliptic')]:
+                         unit=(u.rad, u.deg), frame='barycentricmeanecliptic')]:
         for sc2 in [SkyCoord(5*u.deg,10*u.deg),
                     SkyCoord(np.linspace(0, 359, npoints), np.linspace(-90, 90, npoints),
                              unit=u.deg, frame='galactic')]:
@@ -877,7 +877,7 @@ def test_units():
 
     with pytest.raises(u.UnitsError) as err:
         SkyCoord(1, 2, 3, unit=(u.m, u.m), representation_type='cartesian')
-    assert 'should have matching physical types' in str(err)
+    assert 'should have matching physical types' in str(err.value)
 
     SkyCoord(1, 2, 3, unit=(u.m, u.km, u.pc), representation_type='cartesian')
     assert_quantities_allclose(sc, (1*u.m, 2*u.km, 3*u.pc), ('x', 'y', 'z'))
@@ -903,7 +903,7 @@ def test_wcs_methods(mode, origin):
     from astropy.utils.data import get_pkg_data_contents
     from astropy.wcs.utils import pixel_to_skycoord
 
-    header = get_pkg_data_contents('../../wcs/tests/maps/1904-66_TAN.hdr', encoding='binary')
+    header = get_pkg_data_contents('../../wcs/tests/data/maps/1904-66_TAN.hdr', encoding='binary')
     wcs = WCS(header)
 
     ref = SkyCoord(0.1 * u.deg, -89. * u.deg, frame='icrs')
@@ -1007,8 +1007,8 @@ def test_immutable():
     assert c1.foo == 42
 
 
-@pytest.mark.skipif(str('not HAS_SCIPY'))
-@pytest.mark.skipif(str('OLDER_SCIPY'))
+@pytest.mark.skipif('not HAS_SCIPY')
+@pytest.mark.skipif('OLDER_SCIPY')
 def test_search_around():
     """
     Test the search_around_* methods
@@ -1053,7 +1053,7 @@ def test_init_with_frame_instance_keyword():
     # Check duplicate arguments
     with pytest.raises(ValueError) as err:
         c = SkyCoord(3 * u.deg, 4 * u.deg, frame=FK5(equinox='J2010'), equinox='J2001')
-    assert "Cannot specify frame attribute 'equinox'" in str(err)
+    assert "Cannot specify frame attribute 'equinox'" in str(err.value)
 
 
 def test_guess_from_table():
@@ -1173,7 +1173,7 @@ def test_nd_skycoord_to_string():
     c = SkyCoord(np.ones((2, 2)), 1, unit=('deg', 'deg'))
     ts = c.to_string()
     assert np.all(ts.shape == c.shape)
-    assert np.all(ts == u'1 1')
+    assert np.all(ts == '1 1')
 
 
 def test_equiv_skycoord():
@@ -1229,7 +1229,7 @@ def test_constellations_with_nameresolve():
 
     # ok, but at least some of the others do make sense...
     assert SkyCoord.from_name('Coma Cluster').get_constellation(short_name=True) == 'Com'
-    assert SkyCoord.from_name('UMa II').get_constellation() == 'Ursa Major'
+    assert SkyCoord.from_name('Orion Nebula').get_constellation() == 'Orion'
     assert SkyCoord.from_name('Triangulum Galaxy').get_constellation() == 'Triangulum'
 
 

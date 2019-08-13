@@ -40,11 +40,15 @@ class BaseHighLevelWCS(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def pixel_to_world(self, *pixel_arrays):
         """
-        Convert pixel coordinates to world coordinates (represented by high-level
-        objects).
+        Convert pixel coordinates to world coordinates (represented by
+        high-level objects).
 
-        See `~astropy.wcs.wcsapi.BaseLowLevelWCS.pixel_to_world_values` for pixel indexing and
-        ordering conventions.
+        If a single high-level object is used to represent the world coordinates
+        (i.e., if ``len(wcs.world_axis_object_classes) == 1``), it is returned
+        as-is (not in a tuple/list), otherwise a tuple of high-level objects is
+        returned. See
+        `~astropy.wcs.wcsapi.BaseLowLevelWCS.pixel_to_world_values` for pixel
+        indexing and ordering conventions.
         """
 
     @abc.abstractmethod
@@ -53,8 +57,12 @@ class BaseHighLevelWCS(metaclass=abc.ABCMeta):
         Convert array indices to world coordinates (represented by Astropy
         objects).
 
-        See `~astropy.wcs.wcsapi.BaseLowLevelWCS.array_index_to_world_values` for pixel indexing and
-        ordering conventions.
+        If a single high-level object is used to represent the world coordinates
+        (i.e., if ``len(wcs.world_axis_object_classes) == 1``), it is returned
+        as-is (not in a tuple/list), otherwise a tuple of high-level objects is
+        returned. See
+        `~astropy.wcs.wcsapi.BaseLowLevelWCS.array_index_to_world_values` for
+        pixel indexing and ordering conventions.
         """
 
     @abc.abstractmethod
@@ -63,8 +71,11 @@ class BaseHighLevelWCS(metaclass=abc.ABCMeta):
         Convert world coordinates (represented by Astropy objects) to pixel
         coordinates.
 
-        See `~astropy.wcs.wcsapi.BaseLowLevelWCS.world_to_pixel_values` for pixel indexing and
-        ordering conventions.
+        If `~astropy.wcs.wcsapi.BaseLowLevelWCS.pixel_n_dim` is ``1``, this
+        method returns a single scalar or array, otherwise a tuple of scalars or
+        arrays is returned. See
+        `~astropy.wcs.wcsapi.BaseLowLevelWCS.world_to_pixel_values` for pixel
+        indexing and ordering conventions.
         """
 
     @abc.abstractmethod
@@ -73,9 +84,12 @@ class BaseHighLevelWCS(metaclass=abc.ABCMeta):
         Convert world coordinates (represented by Astropy objects) to array
         indices.
 
-        See `~astropy.wcs.wcsapi.BaseLowLevelWCS.world_to_array_index_values` for pixel indexing
-        and ordering conventions. The indices should be returned as rounded
-        integers.
+        If `~astropy.wcs.wcsapi.BaseLowLevelWCS.pixel_n_dim` is ``1``, this
+        method returns a single scalar or array, otherwise a tuple of scalars or
+        arrays is returned. See
+        `~astropy.wcs.wcsapi.BaseLowLevelWCS.world_to_array_index_values` for
+        pixel indexing and ordering conventions. The indices should be returned
+        as rounded integers.
         """
 
 
@@ -107,8 +121,8 @@ class HighLevelWCSMixin(BaseHighLevelWCS):
 
         # Check that the number of classes matches the number of inputs
         if len(world_objects) != len(classes):
-            raise ValueError("Number of world inputs ({0}) does not match "
-                             "expected ({1})".format(len(world_objects), len(classes)))
+            raise ValueError("Number of world inputs ({}) does not match "
+                             "expected ({})".format(len(world_objects), len(classes)))
 
         # Determine whether the classes are uniquely matched, that is we check
         # whether there is only one of each class.
@@ -153,7 +167,7 @@ class HighLevelWCSMixin(BaseHighLevelWCS):
                 w = world_objects[ikey]
                 if not isinstance(w, klass):
                     raise ValueError("Expected the following order of world "
-                                     "arguments: {0}".format(', '.join([k.__name__ for (k, _, _) in classes.values()])))
+                                     "arguments: {}".format(', '.join([k.__name__ for (k, _, _) in classes.values()])))
 
                 # FIXME: For now SkyCoord won't auto-convert upon initialization
                 # https://github.com/astropy/astropy/issues/7689
@@ -180,6 +194,9 @@ class HighLevelWCSMixin(BaseHighLevelWCS):
 
         # Compute the world coordinate values
         world = self.low_level_wcs.pixel_to_world_values(*pixel_arrays)
+
+        if self.world_n_dim == 1:
+            world = (world,)
 
         # Cache the classes and components since this may be expensive
         components = self.low_level_wcs.world_axis_object_components
@@ -218,4 +235,7 @@ class HighLevelWCSMixin(BaseHighLevelWCS):
         return self.pixel_to_world(*index_arrays[::-1])
 
     def world_to_array_index(self, *world_objects):
-        return tuple(np.round(self.world_to_pixel(*world_objects)[::-1]).astype(int).tolist())
+        if self.pixel_n_dim == 1:
+            return np.round(self.world_to_pixel(*world_objects)).astype(int)
+        else:
+            return tuple(np.round(self.world_to_pixel(*world_objects)[::-1]).astype(int).tolist())

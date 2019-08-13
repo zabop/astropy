@@ -12,6 +12,7 @@ from numpy.testing import assert_allclose, assert_equal
 
 from .example_models import models_1D, models_2D
 from astropy.modeling import fitting, models
+from astropy.modeling.models import Gaussian2D
 from astropy.modeling.core import FittableModel
 from astropy.modeling.polynomial import PolynomialBase
 from astropy import units as u
@@ -21,7 +22,6 @@ from astropy.utils import NumpyRNGContext
 
 try:
     import scipy
-    from scipy import optimize  # pylint: disable=W0611
     HAS_SCIPY = True
 except ImportError:
     HAS_SCIPY = False
@@ -52,8 +52,8 @@ def test_custom_model(amplitude=4, frequency=1):
     x = np.linspace(0, 4, 50)
     sin_model = SineModel()
 
-    y = sin_model.evaluate(x, 5., 2.)
-    y_prime = sin_model.fit_deriv(x, 5., 2.)
+    sin_model.evaluate(x, 5., 2.)
+    sin_model.fit_deriv(x, 5., 2.)
 
     np.random.seed(0)
     data = sin_model(x) + np.random.rand(len(x)) - 0.5
@@ -88,6 +88,19 @@ def test_custom_model_defaults():
 
     assert sin_model.amplitude == 4
     assert sin_model.frequency == 1
+
+
+def test_inconsistent_input_shapes():
+    g = Gaussian2D()
+    x = np.arange(-1., 1, .2)
+    y = x.copy()
+    # check scalar input broadcasting works
+    assert np.abs(g(x,0) - g(x, 0*x)).sum() == 0
+    # but not array broadcasting
+    x.shape = (10, 1)
+    y.shape = (1, 10)
+    with pytest.raises(ValueError):
+        g(x,y)
 
 
 def test_custom_model_bounding_box():
@@ -162,7 +175,7 @@ class Fittable2DModelTester:
         x = test_parameters['x_values']
         y = test_parameters['y_values']
         z = test_parameters['z_values']
-        assert np.all((np.abs(model(x, y) - z) < self.eval_error))
+        assert np.all(np.abs(model(x, y) - z) < self.eval_error)
 
     def test_bounding_box2D(self, model_class, test_parameters):
         """Test bounding box evaluation"""
@@ -658,3 +671,66 @@ def test_with_bounding_box():
     p = models.Polynomial1D(1, c0=12, c1=2.3)
     p.bounding_box = (0, 5)
     assert(p(1) == p(1, with_bounding_box=True))
+
+    t3 = models.Shift(10) & models.Scale(2) & models.Shift(-1)
+    t3.bounding_box = ((4.3, 6.9), (6, 15), (-1, 10))
+    assert_allclose(t3([1, 1], [7, 7], [3, 5],with_bounding_box=True),
+                    [[np.nan, 11], [np.nan, 14], [np.nan, 4]])
+
+    trans3 = models.Shift(10) & models.Scale(2) & models.Shift(-1)
+    trans3.bounding_box = ((4.3, 6.9), (6, 15), (-1, 10))
+    assert_allclose(trans3(1, 7, 5, with_bounding_box=True), [11, 14, 4])
+
+
+@pytest.mark.skipif("not HAS_SCIPY_14")
+def test_tabular_with_bounding_box():
+    points = np.arange(5)
+    values = np.array([1.5, 3.4, 6.7, 7, 32])
+    t = models.Tabular1D(points, values)
+    result = t(1, with_bounding_box=True)
+
+    assert result == 3.4
+    assert t.inverse(result, with_bounding_box=True) == 1.
+
+
+@pytest.mark.skipif("not HAS_SCIPY_14")
+def test_tabular_bounding_box_with_units():
+    points = np.arange(5)*u.pix
+    lt = np.arange(5)*u.AA
+    t = models.Tabular1D(points, lt)
+    result = t(1*u.pix, with_bounding_box=True)
+
+    assert result == 1.*u.AA
+    assert t.inverse(result, with_bounding_box=True) == 1*u.pix
+
+
+@pytest.mark.skipif("not HAS_SCIPY_14")
+def test_tabular1d_inverse():
+    """Test that the Tabular1D inverse is defined"""
+    points = np.arange(5)
+    values = np.array([1.5, 3.4, 6.7, 7, 32])
+    t = models.Tabular1D(points, values)
+    result = t.inverse((3.4, 6.7))
+    assert_allclose(result, np.array((1., 2.)))
+
+    # Check that it works for descending values in lookup_table
+    t2 = models.Tabular1D(points, values[::-1])
+    assert_allclose(t2.inverse.points[0], t2.lookup_table[::-1])
+
+    result2 = t2.inverse((7, 6.7))
+    assert_allclose(result2, np.array((1., 2.)))
+
+    # Check that it errors on double-valued lookup_table
+    points = np.arange(5)
+    values = np.array([1.5, 3.4, 3.4, 32, 25])
+    t = models.Tabular1D(points, values)
+    with pytest.raises(NotImplementedError):
+        t.inverse((3.4, 7.))
+
+    # Check that Tabular2D.inverse raises an error
+    table = np.arange(5*5).reshape(5, 5)
+    points = np.arange(0, 5)
+    points = (points, points)
+    t3 = models.Tabular2D(points=points, lookup_table=table)
+    with pytest.raises(NotImplementedError):
+        t3.inverse((3, 3))

@@ -105,7 +105,7 @@ def test_missing_data():
                 '<tr><td>1</td></tr>',
                 '</table>']
     dat = Table.read(table_in, format='ascii.html')
-    assert dat.masked is True
+    assert dat.masked is False
     assert np.all(dat['A'].mask == [True, False])
     assert dat['A'].dtype.kind == 'i'
 
@@ -116,7 +116,7 @@ def test_missing_data():
                 '<tr><td>1</td></tr>',
                 '</table>']
     dat = Table.read(table_in, format='ascii.html', fill_values=[('...', '0')])
-    assert dat.masked is True
+    assert dat.masked is False
     assert np.all(dat['A'].mask == [True, False])
     assert dat['A'].dtype.kind == 'i'
 
@@ -173,12 +173,12 @@ def test_identify_table_fail():
     with pytest.raises(core.InconsistentTableError) as err:
         Table.read(table_in, format='ascii.html', htmldict={'table_id': 'bad_id'},
                    guess=False)
-    assert str(err).endswith("ERROR: HTML table id 'bad_id' not found")
+    assert err.match("ERROR: HTML table id 'bad_id' not found$")
 
     with pytest.raises(core.InconsistentTableError) as err:
         Table.read(table_in, format='ascii.html', htmldict={'table_id': 3},
                    guess=False)
-    assert str(err).endswith("ERROR: HTML table number 3 not found")
+    assert err.match("ERROR: HTML table number 3 not found$")
 
 
 @pytest.mark.skipif('not HAS_BEAUTIFUL_SOUP')
@@ -189,7 +189,7 @@ def test_backend_parsers():
     """
     for parser in ('lxml', 'xml', 'html.parser', 'html5lib'):
         try:
-            table = Table.read('t/html2.html', format='ascii.html',
+            table = Table.read('data/html2.html', format='ascii.html',
                                htmldict={'parser': parser}, guess=False)
         except FeatureNotFound:
             if parser == 'html.parser':
@@ -198,7 +198,7 @@ def test_backend_parsers():
 
     # reading should fail if the parser is invalid
     with pytest.raises(FeatureNotFound):
-        Table.read('t/html2.html', format='ascii.html',
+        Table.read('data/html2.html', format='ascii.html',
                    htmldict={'parser': 'foo'}, guess=False)
 
 
@@ -221,7 +221,7 @@ def test_htmlinputter():
     into a list of SoupStrings representing table elements.
     """
 
-    f = 't/html.html'
+    f = 'data/html.html'
     with open(f) as fd:
         table = fd.read()
 
@@ -290,7 +290,7 @@ def test_htmlheader_start():
     for sample input.
     """
 
-    f = 't/html.html'
+    f = 'data/html.html'
     with open(f) as fd:
         table = fd.read()
 
@@ -329,7 +329,7 @@ def test_htmldata():
     t/html.html for sample input.
     """
 
-    f = 't/html.html'
+    f = 'data/html.html'
     with open(f) as fd:
         table = fd.read()
 
@@ -552,7 +552,7 @@ def test_multicolumn_read():
     casts all elements to string prior to type conversion operations.
     """
 
-    table = Table.read('t/html2.html', format='ascii.html')
+    table = Table.read('data/html2.html', format='ascii.html')
     str_type = np.dtype((str, 21))
     expected = Table(np.array([(['1', '2.5000000000000000001'], 3),
                                (['1a', '1'], 3.5)],
@@ -728,9 +728,9 @@ def test_read_html_unicode():
     """
     Test reading an HTML table with unicode values
     """
-    table_in = [u'<table>',
-                u'<tr><td>&#x0394;</td></tr>',
-                u'<tr><td>Δ</td></tr>',
-                u'</table>']
+    table_in = ['<table>',
+                '<tr><td>&#x0394;</td></tr>',
+                '<tr><td>Δ</td></tr>',
+                '</table>']
     dat = Table.read(table_in, format='ascii.html')
-    assert np.all(dat['col1'] == [u'Δ', u'Δ'])
+    assert np.all(dat['col1'] == ['Δ', 'Δ'])

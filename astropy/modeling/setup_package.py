@@ -118,13 +118,6 @@ def preprocess_source():
         fd.write(c_out)
 
 
-def get_package_data():
-    return {
-        'astropy.modeling.tests': ['data/*.fits', 'data/*.hdr',
-                                   '../../wcs/tests/maps/*.hdr']
-    }
-
-
 def get_extensions():
     wcslib_files = [  # List of wcslib files to compile
         'prj.c',
@@ -151,4 +144,4 @@ def get_extensions():
     cfg['sources'] = [str(x) for x in cfg['sources']]
     cfg = dict((str(key), val) for key, val in cfg.items())
 
-    return [Extension(str('astropy.modeling._projections'), **cfg)]
+    return [Extension('astropy.modeling._projections', **cfg)]

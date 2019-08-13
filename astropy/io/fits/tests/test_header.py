@@ -85,6 +85,15 @@ class TestHeaderFunctions(FitsTestCase):
         c = fits.Card()
         assert '' == c.keyword
 
+    def test_card_from_bytes(self):
+        """
+        Test loading a Card from a `bytes` object (assuming latin-1 encoding).
+        """
+
+        c = fits.Card.fromstring(b"ABC     = 'abc'")
+        assert c.keyword == 'ABC'
+        assert c.value == 'abc'
+
     def test_string_value_card(self):
         """Test Card constructor with string value"""
 
@@ -211,11 +220,19 @@ class TestHeaderFunctions(FitsTestCase):
         header = fits.Header()
         header.update({'FOO': ('BAR', 'BAZ')})
         header.update(FakeHeader([('A', 1), ('B', 2, 'comment')]))
+
         assert set(header.keys()) == {'FOO', 'A', 'B'}
         assert header.comments['B'] == 'comment'
 
+        # test that comments are preserved
+        tmphdr = fits.Header()
+        tmphdr['HELLO'] = (1, 'this is a comment')
+        header.update(tmphdr)
+        assert set(header.keys()) == {'FOO', 'A', 'B', 'HELLO'}
+        assert header.comments['HELLO'] == 'this is a comment'
+
         header.update(NAXIS1=100, NAXIS2=100)
-        assert set(header.keys()) == {'FOO', 'A', 'B', 'NAXIS1', 'NAXIS2'}
+        assert set(header.keys()) == {'FOO', 'A', 'B', 'HELLO', 'NAXIS1', 'NAXIS2'}
         assert set(header.values()) == {'BAR', 1, 2, 100, 100}
 
     def test_update_comment(self):
@@ -292,7 +309,7 @@ class TestHeaderFunctions(FitsTestCase):
         c = fits.Card.fromstring('abc     = +  2.1   e + 12')
         assert c.value == 2100000000000.0
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             assert str(c) == _pad("ABC     =             +2.1E+12")
 
     def test_fixable_non_fsc(self):
@@ -303,7 +320,7 @@ class TestHeaderFunctions(FitsTestCase):
             "no_quote=  this card's value has no quotes "
             "/ let's also try the comment")
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             assert (str(c) == "NO_QUOTE= 'this card''s value has no quotes' "
                     "/ let's also try the comment       ")
 
@@ -318,7 +335,7 @@ class TestHeaderFunctions(FitsTestCase):
         assert c.keyword == 'XYZ'
         assert c.value == 100
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             assert str(c) == _pad("XYZ     =                  100")
 
     def test_equal_only_up_to_column_10(self, capsys):
@@ -330,14 +347,14 @@ class TestHeaderFunctions(FitsTestCase):
         # should be left alone
         c = fits.Card.fromstring("HISTO       =   (1, 2)")
         with pytest.warns(AstropyUserWarning,
-                          match='header keyword is invalid'):
+                          match=r'header keyword is invalid'):
             assert str(c) == _pad("HISTO       =   (1, 2)")
 
         # Likewise this card should just be left in its original form and
         # we shouldn't guess how to parse it or rewrite it.
         c = fits.Card.fromstring("   HISTORY          (1, 2)")
         with pytest.warns(AstropyUserWarning,
-                          match='header keyword is invalid'):
+                          match=r'header keyword is invalid'):
             assert str(c) == _pad("   HISTORY          (1, 2)")
 
     def test_verify_invalid_equal_sign(self):
@@ -471,7 +488,7 @@ class TestHeaderFunctions(FitsTestCase):
             _pad("continue  'continue must have string value (with quotes)' "
                  "/ comments with ''. "))
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             assert (str(c) ==
                     "ABC     = 'longstring''s testing  continue with long string but without the &'  "
                     "CONTINUE  'ampersand at the endcontinue must have string value (with quotes)&'  "
@@ -600,12 +617,12 @@ class TestHeaderFunctions(FitsTestCase):
         """Test that accessing a non-existent keyword raises a KeyError."""
 
         header = fits.Header()
+        # De-referencing header through the inline function should behave
+        # identically to accessing it in the pytest.raises context below.
         pytest.raises(KeyError, lambda k: header[k], 'NAXIS')
-        # Test the exception message
-        try:
+        # Test exception with message
+        with pytest.raises(KeyError, match=r"Keyword 'NAXIS' not found."):
             header['NAXIS']
-        except KeyError as e:
-            assert e.args[0] == "Keyword 'NAXIS' not found."
 
     def test_hierarch_card_lookup(self):
         header = fits.Header()
@@ -625,16 +642,16 @@ class TestHeaderFunctions(FitsTestCase):
     def test_hierarch_card_insert_delete(self):
         header = fits.Header()
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='greater than 8 characters'):
+                          match=r'greater than 8 characters'):
             header['abcdefghi'] = 10
         header['abcdefgh'] = 10
         header['abcdefg'] = 10
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='greater than 8 characters'):
+                          match=r'greater than 8 characters'):
             header.insert(2, ('abcdefghij', 10))
         del header['abcdefghij']
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='greater than 8 characters'):
+                          match=r'greater than 8 characters'):
             header.insert(2, ('abcdefghij', 10))
         del header[2]
         assert list(header.keys())[2] == 'abcdefg'.upper()
@@ -780,7 +797,7 @@ class TestHeaderFunctions(FitsTestCase):
         header['FOO'] = ('BAR',)
         header['FOO2'] = (None,)
         assert header['FOO'] == 'BAR'
-        assert header['FOO2'] == ''
+        assert header['FOO2'] is None
         assert header[0] == 'BAR'
         assert header.comments[0] == ''
         assert header.comments['FOO'] == ''
@@ -790,7 +807,7 @@ class TestHeaderFunctions(FitsTestCase):
         header['FOO'] = ('BAR', 'BAZ')
         header['FOO2'] = (None, None)
         assert header['FOO'] == 'BAR'
-        assert header['FOO2'] == ''
+        assert header['FOO2'] is None
         assert header[0] == 'BAR'
         assert header.comments[0] == 'BAZ'
         assert header.comments['FOO'] == 'BAZ'
@@ -798,15 +815,48 @@ class TestHeaderFunctions(FitsTestCase):
 
     def test_header_set_value_to_none(self):
         """
-        Setting the value of a card to None should simply give that card a
-        blank value.
+        Setting the value of a card to None should simply give that card an
+        undefined value.  Undefined value should map to None.
         """
 
         header = fits.Header()
         header['FOO'] = 'BAR'
         assert header['FOO'] == 'BAR'
         header['FOO'] = None
-        assert header['FOO'] == ''
+        assert header['FOO'] is None
+
+        # Create a header that contains an undefined value and a defined
+        # value.
+        hstr = "UNDEF   = \nDEFINED = 42"
+        header = fits.Header.fromstring(hstr, sep='\n')
+
+        # Explicitly add a card with an UNDEFINED value
+        c = fits.Card("UNDEF2", fits.card.UNDEFINED)
+        header.extend([c])
+
+        # And now assign an undefined value to the header through setitem
+        header['UNDEF3'] = fits.card.UNDEFINED
+
+        # Tuple assignment
+        header.append(("UNDEF5", None, "Undefined value"), end=True)
+        header.append("UNDEF6")
+
+        assert header['DEFINED'] == 42
+        assert header['UNDEF'] is None
+        assert header['UNDEF2'] is None
+        assert header['UNDEF3'] is None
+        assert header['UNDEF5'] is None
+        assert header['UNDEF6'] is None
+
+        # Assign an undefined value to a new card
+        header['UNDEF4'] = None
+
+        # Overwrite an existing value with None
+        header["DEFINED"] = None
+
+        # All headers now should be undefined
+        for c in header.cards:
+            assert c.value == fits.card.UNDEFINED
 
     def test_set_comment_only(self):
         header = fits.Header([('A', 'B', 'C')])
@@ -936,10 +986,10 @@ class TestHeaderFunctions(FitsTestCase):
     def test_header_fromkeys(self):
         header = fits.Header.fromkeys(['A', 'B'])
         assert 'A' in header
-        assert header['A'] == ''
+        assert header['A'] is None
         assert header.comments['A'] == ''
         assert 'B' in header
-        assert header['B'] == ''
+        assert header['B'] is None
         assert header.comments['B'] == ''
 
     def test_header_fromkeys_with_value(self):
@@ -984,10 +1034,10 @@ class TestHeaderFunctions(FitsTestCase):
             assert a == b
 
     def test_header_keys(self):
-        hdul = fits.open(self.data('arange.fits'))
-        assert (list(hdul[0].header) ==
-                ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2', 'NAXIS3',
-                 'EXTEND'])
+        with fits.open(self.data('arange.fits')) as hdul:
+            assert (list(hdul[0].header) ==
+                    ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2', 'NAXIS3',
+                    'EXTEND'])
 
     def test_header_list_like_pop(self):
         header = fits.Header([('A', 'B'), ('C', 'D'), ('E', 'F'),
@@ -1271,7 +1321,7 @@ class TestHeaderFunctions(FitsTestCase):
         header.append('E')
         assert len(header) == 3
         assert list(header)[-1] == 'E'
-        assert header[-1] == ''
+        assert header[-1] is None
         assert header.comments['E'] == ''
 
         # Try appending a blank--normally this can be accomplished with just
@@ -1506,8 +1556,9 @@ class TestHeaderFunctions(FitsTestCase):
         assert str(header.cards[2]).rstrip() == 'HISTORY ' + longval[72:]
 
     def test_totxtfile(self):
-        hdul = fits.open(self.data('test0.fits'))
-        hdul[0].header.totextfile(self.temp('header.txt'))
+        with fits.open(self.data('test0.fits')) as hdul:
+            hdul[0].header.totextfile(self.temp('header.txt'))
+
         hdu = fits.ImageHDU()
         hdu.header.update({'MYKEY': 'FOO'})
         hdu.header.extend(hdu.header.fromtextfile(self.temp('header.txt')),
@@ -1516,8 +1567,9 @@ class TestHeaderFunctions(FitsTestCase):
         # Write the hdu out and read it back in again--it should be recognized
         # as a PrimaryHDU
         hdu.writeto(self.temp('test.fits'), output_verify='ignore')
-        assert isinstance(fits.open(self.temp('test.fits'))[0],
-                          fits.PrimaryHDU)
+
+        with fits.open(self.temp('test.fits')) as hdul:
+            assert isinstance(hdul[0], fits.PrimaryHDU)
 
         hdu = fits.ImageHDU()
         hdu.header.update({'MYKEY': 'FOO'})
@@ -1530,9 +1582,17 @@ class TestHeaderFunctions(FitsTestCase):
         with ignore_warnings():
             hdu.writeto(self.temp('test.fits'), output_verify='ignore',
                         overwrite=True)
-        hdul2 = fits.open(self.temp('test.fits'))
-        assert len(hdul2) == 2
-        assert 'MYKEY' in hdul2[1].header
+
+        with fits.open(self.temp('test.fits')) as hdul2:
+            assert len(hdul2) == 2
+            assert 'MYKEY' in hdul2[1].header
+
+    def test_fromfile(self):
+        """Regression test for https://github.com/astropy/astropy/issues/8711
+        """
+        filename = self.data('scale.fits')
+        hdr = fits.Header.fromfile(filename)
+        assert hdr['DATASET'] == '2MASS'
 
     def test_header_fromtextfile(self):
         """Regression test for https://aeon.stsci.edu/ssb/trac/pyfits/ticket/122
@@ -1680,8 +1740,8 @@ class TestHeaderFunctions(FitsTestCase):
 
         with open(self.temp('test.fits'), 'rb') as f:
             out = f.read()
-        out = out.replace(b'hello', u'héllo'.encode('latin1'))
-        out = out.replace(b'BAR', u'BÀR'.encode('latin1'))
+        out = out.replace(b'hello', 'héllo'.encode('latin1'))
+        out = out.replace(b'BAR', 'BÀR'.encode('latin1'))
         with open(self.temp('test2.fits'), 'wb') as f2:
             f2.write(out)
 
@@ -1748,12 +1808,12 @@ class TestHeaderFunctions(FitsTestCase):
         # Now if this were reserialized, would new values for these cards be
         # written with repaired exponent signs?
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             assert (str(h.cards['FOCALLEN']) ==
                     _pad("FOCALLEN= +1.550000000000E+002"))
         assert h.cards['FOCALLEN']._modified
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             assert (str(h.cards['APERTURE']) ==
                     _pad("APERTURE= +0.000000000000E+000"))
         assert h.cards['APERTURE']._modified
@@ -1764,12 +1824,12 @@ class TestHeaderFunctions(FitsTestCase):
         # really should be "fixed" before being returned to the user
         h = fits.Header.fromstring(hstr, sep='\n')
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             assert (str(h.cards['FOCALLEN']) ==
                     _pad("FOCALLEN= +1.550000000000E+002"))
         assert h.cards['FOCALLEN']._modified
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             assert (str(h.cards['APERTURE']) ==
                     _pad("APERTURE= +0.000000000000E+000"))
         assert h.cards['APERTURE']._modified
@@ -2135,7 +2195,7 @@ class TestHeaderFunctions(FitsTestCase):
 
         c = fits.Card.fromstring('HIERARCH ESO DET CHIP PXSPACE = 5e6')
         with pytest.warns(fits.verify.VerifyWarning,
-                          match='Verification reported errors'):
+                          match=r'Verification reported errors'):
             c.verify('fix')
         assert str(c) == _pad('HIERARCH ESO DET CHIP PXSPACE = 5E6')
 
@@ -2296,6 +2356,21 @@ class TestHeaderFunctions(FitsTestCase):
             else:
                 c.verify('exception')
 
+    def test_header_fromstring_bytes(self):
+        """
+        Test reading a Header from a `bytes` string.
+
+        See https://github.com/astropy/astropy/issues/8706
+        """
+
+        with open(self.data('test0.fits'), 'rb') as fobj:
+            pri_hdr_from_bytes = fits.Header.fromstring(fobj.read())
+
+        pri_hdr = fits.getheader(self.data('test0.fits'))
+        assert pri_hdr['NAXIS'] == pri_hdr_from_bytes['NAXIS']
+        assert pri_hdr == pri_hdr_from_bytes
+        assert pri_hdr.tostring() == pri_hdr_from_bytes.tostring()
+
 
 class TestRecordValuedKeywordCards(FitsTestCase):
     """
@@ -2455,12 +2530,9 @@ class TestRecordValuedKeywordCards(FitsTestCase):
         """
 
         pytest.raises(IndexError, lambda x: self._test_header[x], 8)
-        pytest.raises(KeyError, lambda k: self._test_header[k], 'DP1.AXIS.3')
-        # Test the exception message
-        try:
+        # Test exception with message
+        with pytest.raises(KeyError, match=r"Keyword 'DP1\.AXIS\.3' not found."):
             self._test_header['DP1.AXIS.3']
-        except KeyError as e:
-            assert e.args[0] == "Keyword 'DP1.AXIS.3' not found."
 
     def test_update_rvkc(self):
         """A RVKC can be updated either via index or keyword access."""
@@ -2704,10 +2776,12 @@ class TestRecordValuedKeywordCards(FitsTestCase):
         assert "NAXIS   =" in output
         assert "NAXIS1  =" in output
         assert "NAXIS2  =" in output
+        hf.close()
 
         # Can an extension by specified by the EXTNAME+EXTVER keywords?
         hf = fitsheader.HeaderFormatter(self.data('test0.fits'))
         assert "EXTNAME = 'SCI" in hf.parse(extensions=['SCI,2'])
+        hf.close()
 
         # Can we print the original header before decompression?
         hf = fitsheader.HeaderFormatter(self.data('comp.fits'))
@@ -2715,23 +2789,25 @@ class TestRecordValuedKeywordCards(FitsTestCase):
                                               compressed=False)
         assert "XTENSION= 'BINTABLE" in hf.parse(extensions=[1],
                                                  compressed=True)
+        hf.close()
 
     def test_fitsheader_table_feature(self):
         """Tests the `--table` feature of the `fitsheader` script."""
         from astropy.io import fits
         from astropy.io.fits.scripts import fitsheader
         test_filename = self.data('zerowidth.fits')
-        fitsobj = fits.open(test_filename)
+
         formatter = fitsheader.TableHeaderFormatter(test_filename)
 
-        # Does the table contain the expected number of rows?
-        mytable = formatter.parse([0])
-        assert len(mytable) == len(fitsobj[0].header)
-        # Repeat the above test when multiple HDUs are requested
-        mytable = formatter.parse(extensions=['AIPS FQ', 2, "4"])
-        assert len(mytable) == (len(fitsobj['AIPS FQ'].header)
-                                + len(fitsobj[2].header)
-                                + len(fitsobj[4].header))
+        with fits.open(test_filename) as fitsobj:
+            # Does the table contain the expected number of rows?
+            mytable = formatter.parse([0])
+            assert len(mytable) == len(fitsobj[0].header)
+            # Repeat the above test when multiple HDUs are requested
+            mytable = formatter.parse(extensions=['AIPS FQ', 2, "4"])
+            assert len(mytable) == (len(fitsobj['AIPS FQ'].header)
+                                    + len(fitsobj[2].header)
+                                    + len(fitsobj[4].header))
 
         # Can we recover the filename and extension name from the table?
         mytable = formatter.parse(extensions=['AIPS FQ'])
@@ -2754,6 +2830,7 @@ class TestRecordValuedKeywordCards(FitsTestCase):
         mytable = formatter.parse(extensions=['AIPS FQ'],
                                   keywords=['DOES_NOT_EXIST'])
         assert mytable is None
+        formatter.close()
 
     @pytest.mark.parametrize('mode', ['wb', 'wb+', 'ab', 'ab+'])
     def test_hdu_writeto_mode(self, mode):

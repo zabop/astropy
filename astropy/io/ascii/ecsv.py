@@ -56,7 +56,7 @@ class EcsvHeader(basic.BasicHeader):
 
         for col in self.cols:
             if len(getattr(col, 'shape', ())) > 1:
-                raise ValueError("ECSV format does not support multidimensional column '{0}'"
+                raise ValueError("ECSV format does not support multidimensional column '{}'"
                                  .format(col.info.name))
 
         # Now assemble the header dict that will be serialized by the YAML dumper
@@ -69,7 +69,7 @@ class EcsvHeader(basic.BasicHeader):
         if self.splitter.delimiter != ' ':
             header['delimiter'] = self.splitter.delimiter
 
-        header_yaml_lines = (['%ECSV {0}'.format(ECSV_VERSION),
+        header_yaml_lines = ([f'%ECSV {ECSV_VERSION}',
                               '---']
                              + meta.get_yaml_from_header(header))
 
@@ -233,11 +233,12 @@ class EcsvData(basic.BasicData):
 
 
 class Ecsv(basic.Basic):
-    """
-    Read a file which conforms to the ECSV (Enhanced Character Separated
-    Values) format.  This format allows for specification of key table
-    and column meta-data, in particular the data type and unit.  For details
-    see: https://github.com/astropy/astropy-APEs/blob/master/APE6.rst.
+    """ECSV (Enhanced Character Separated Values) format table.
+
+    Th ECSV format allows for specification of key table and column meta-data, in
+    particular the data type and unit.
+
+    See: https://github.com/astropy/astropy-APEs/blob/master/APE6.rst
 
     Examples
     --------
@@ -252,6 +253,7 @@ class Ecsv(basic.Basic):
     ... 001 2
     ... 004 3
     ... '''
+
     >>> Table.read(ecsv_content, format='ascii.ecsv')
     <Table length=2>
       a     b
@@ -260,6 +262,7 @@ class Ecsv(basic.Basic):
     ----- -----
       001     2
       004     3
+
     """
     _format_name = 'ecsv'
     _description = 'Enhanced CSV'
@@ -288,5 +291,5 @@ class Ecsv(basic.Basic):
             Output table for writing
         """
         with serialize_context_as('ecsv'):
-            out = serialize._represent_mixins_as_columns(table)
+            out = serialize.represent_mixins_as_columns(table)
         return out

@@ -46,18 +46,26 @@ class TestFitsTime(FitsTestCase):
         t['a'].location = EarthLocation([1., 2.], [2., 3.], [3., 4.],
                                         unit='Mm')
 
-        with pytest.warns(AstropyUserWarning, match='Time Column "b" has no '
-                          'specified location, but global Time Position is present'):
+        with pytest.warns(AstropyUserWarning, match=r'Time Column "b" has no '
+                          r'specified location, but global Time Position is present'):
             table, hdr = time_to_fits(t)
         assert (table['OBSGEO-X'] == t['a'].location.x.to_value(unit='m')).all()
         assert (table['OBSGEO-Y'] == t['a'].location.y.to_value(unit='m')).all()
         assert (table['OBSGEO-Z'] == t['a'].location.z.to_value(unit='m')).all()
 
-        with pytest.warns(AstropyUserWarning, match='Time Column "b" has no '
-                          'specified location, but global Time Position is present'):
+        with pytest.warns(AstropyUserWarning, match=r'Time Column "b" has no '
+                          r'specified location, but global Time Position is present'):
             t.write(self.temp('time.fits'), format='fits', overwrite=True)
-        tm = table_types.read(self.temp('time.fits'), format='fits',
-                              astropy_native=True)
+
+        # Check that a blank value for the "TRPOSn" keyword is not generated
+        hdr = fits.getheader(self.temp('time.fits'), 1)
+        assert hdr.get('TRPOS2', None) is None
+
+        with pytest.warns(AstropyUserWarning, match=r'Time column reference position '
+                          r'"TRPOSn" is not specified. The default value for it is '
+                          r'"TOPOCENTER", and the observatory position has been specified.'):
+            tm = table_types.read(self.temp('time.fits'), format='fits',
+                                  astropy_native=True)
 
         assert (tm['a'].location == t['a'].location).all()
         assert tm['b'].location == t['b'].location
@@ -146,8 +154,8 @@ class TestFitsTime(FitsTestCase):
                          'OBSGEO-Y' : t['a'].location.y.value,
                          'OBSGEO-Z' : t['a'].location.z.value}
 
-        with pytest.warns(AstropyUserWarning, match='Time Column "b" has no '
-                          'specified location, but global Time Position is present'):
+        with pytest.warns(AstropyUserWarning, match=r'Time Column "b" has no '
+                          r'specified location, but global Time Position is present'):
             table, hdr = time_to_fits(t)
 
         # Check the global time keywords in hdr
@@ -167,6 +175,7 @@ class TestFitsTime(FitsTestCase):
             assert coord_info[colname]['coord_unit'] == 'd'
 
         assert coord_info['a']['time_ref_pos'] == 'TOPOCENTER'
+        assert coord_info['b']['time_ref_pos'] == None
 
         assert len(hdr) == 0
 
@@ -184,6 +193,7 @@ class TestFitsTime(FitsTestCase):
         # Test for default write behavior (full precision) and read it
         # back using native astropy objects; thus, ensure its round-trip
         t.write(self.temp('time.fits'), format='fits', overwrite=True)
+
         tm = table_types.read(self.temp('time.fits'), format='fits',
                               astropy_native=True)
 
@@ -204,6 +214,7 @@ class TestFitsTime(FitsTestCase):
         t.meta['TIMESYS'] = 'ET'
 
         t.write(self.temp('time.fits'), format='fits', overwrite=True)
+
         tm = table_types.read(self.temp('time.fits'), format='fits',
                               astropy_native=True)
 
@@ -275,8 +286,8 @@ class TestFitsTime(FitsTestCase):
            to be time.
         """
         filename = self.data('chandra_time.fits')
-        with pytest.warns(AstropyUserWarning, match='Time column "time" reference '
-                          'position will be ignored'):
+        with pytest.warns(AstropyUserWarning, match=r'Time column "time" reference '
+                          r'position will be ignored'):
             tm = table_types.read(filename, astropy_native=True)
 
         # Test case 1
@@ -331,9 +342,7 @@ class TestFitsTime(FitsTestCase):
                  ('OBSGEO-Z', 4077985)]
 
         # Explicitly create a FITS Binary Table
-        with pytest.warns(AstropyDeprecationWarning, match='should be set via '
-                          'the Column objects: TCTYPn, TRPOSn'):
-            bhdu = fits.BinTableHDU.from_columns([c], header=fits.Header(cards))
+        bhdu = fits.BinTableHDU.from_columns([c], header=fits.Header(cards))
         bhdu.writeto(self.temp('time.fits'), overwrite=True)
 
         tm = table_types.read(self.temp('time.fits'), astropy_native=True)
@@ -347,9 +356,7 @@ class TestFitsTime(FitsTestCase):
         cards = [('OBSGEO-L', 0), ('OBSGEO-B', 0), ('OBSGEO-H', 0)]
 
         # Explicitly create a FITS Binary Table
-        with pytest.warns(AstropyDeprecationWarning, match='should be set via '
-                          'the Column objects: TCTYPn, TRPOSn'):
-            bhdu = fits.BinTableHDU.from_columns([c], header=fits.Header(cards))
+        bhdu = fits.BinTableHDU.from_columns([c], header=fits.Header(cards))
         bhdu.writeto(self.temp('time.fits'), overwrite=True)
 
         tm = table_types.read(self.temp('time.fits'), astropy_native=True)
@@ -373,9 +380,7 @@ class TestFitsTime(FitsTestCase):
 
         cards = [('OBSGEO-L', 0), ('OBSGEO-B', 0), ('OBSGEO-H', 0)]
 
-        with pytest.warns(AstropyDeprecationWarning, match='should be set via '
-                          'the Column objects: TCTYPn, TCUNIn, TRPOSn'):
-            bhdu = fits.BinTableHDU.from_columns([c], header=fits.Header(cards))
+        bhdu = fits.BinTableHDU.from_columns([c], header=fits.Header(cards))
         bhdu.writeto(self.temp('time.fits'), overwrite=True)
 
         with catch_warnings() as w:
@@ -424,7 +429,8 @@ class TestFitsTime(FitsTestCase):
             assert ('observatory position is not properly specified' in
                     str(w[0].message))
 
-        # Default value for time reference position is "TOPOCENTER"
+        # Warning for default value of time reference position "TOPOCENTER"
+        # not generated when there is no specified observatory position.
         c = fits.Column(name='datetime', format='A29', coord_type='TT',
                         array=self.time)
 
@@ -432,6 +438,4 @@ class TestFitsTime(FitsTestCase):
         bhdu.writeto(self.temp('time.fits'), overwrite=True)
         with catch_warnings() as w:
             tm = table_types.read(self.temp('time.fits'), astropy_native=True)
-            assert len(w) == 1
-            assert ('"TRPOSn" is not specified. The default value for '
-                    'it is "TOPOCENTER"' in str(w[0].message))
+            assert len(w) == 0

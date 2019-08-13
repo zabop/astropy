@@ -1,6 +1,8 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 """This module implements the base CCDData class."""
 
+import itertools
+
 import numpy as np
 
 from .compat import NDDataArray
@@ -401,19 +403,21 @@ class CCDData(NDDataArray):
 
         if len(key) > 8 and len(value) > 72:
             short_name = key[:8]
-            self.meta['HIERARCH {0}'.format(key.upper())] = (
-                short_name, "Shortened name for {}".format(key))
+            self.meta['HIERARCH {}'.format(key.upper())] = (
+                short_name, f"Shortened name for {key}")
             self.meta[short_name] = value
         else:
             self.meta[key] = value
 
 
-# This needs to be importable by the tests...
+# These need to be importable by the tests...
 _KEEP_THESE_KEYWORDS_IN_HEADER = [
     'JD-OBS',
     'MJD-OBS',
     'DATE-OBS'
 ]
+_PCs = set(['PC1_1', 'PC1_2', 'PC2_1', 'PC2_2'])
+_CDs = set(['CD1_1', 'CD1_2', 'CD2_1', 'CD2_2'])
 
 
 def _generate_wcs_and_update_header(hdr):
@@ -454,6 +458,37 @@ def _generate_wcs_and_update_header(hdr):
     for k in wcs_header:
         if k not in _KEEP_THESE_KEYWORDS_IN_HEADER:
             new_hdr.remove(k, ignore_missing=True)
+
+    # Check that this does not result in an inconsistent header WCS if the WCS
+    # is converted back to a header.
+
+    if (_PCs & set(wcs_header)) and (_CDs & set(new_hdr)):
+        # The PCi_j representation is used by the astropy.wcs object,
+        # so CDi_j keywords were not removed from new_hdr. Remove them now.
+        for cd in _CDs:
+            new_hdr.remove(cd, ignore_missing=True)
+
+    # The other case -- CD in the header produced by astropy.wcs -- should
+    # never happen based on [1], which computes the matrix in PC form.
+    # [1]: https://github.com/astropy/astropy/blob/1cf277926d3598dd672dd528504767c37531e8c9/cextern/wcslib/C/wcshdr.c#L596
+    #
+    # The test test_ccddata.test_wcs_keyword_removal_for_wcs_test_files() does
+    # check for the possibility that both PC and CD are present in the result
+    # so if the implementation of to_header changes in wcslib in the future
+    # then the tests should catch it, and then this code will need to be
+    # updated.
+
+    # We need to check for any SIP coefficients that got left behind if the
+    # header has SIP.
+    if wcs.sip is not None:
+        keyword = '{}_{}_{}'
+        polynomials = ['A', 'B', 'AP', 'BP']
+        for poly in polynomials:
+            order = wcs.sip.__getattribute__('{}_order'.format(poly.lower()))
+            for i, j in itertools.product(range(order), repeat=2):
+                new_hdr.remove(keyword.format(poly, i, j),
+                               ignore_missing=True)
+
     return (new_hdr, wcs)
 
 
@@ -517,14 +552,14 @@ def fits_ccddata_reader(filename, hdu=0, unit=None, hdu_uncertainty='UNCERT',
     }
     for key, msg in unsupport_open_keywords.items():
         if key in kwd:
-            prefix = 'unsupported keyword: {0}.'.format(key)
+            prefix = f'unsupported keyword: {key}.'
             raise TypeError(' '.join([prefix, msg]))
     with fits.open(filename, **kwd) as hdus:
         hdr = hdus[hdu].header
 
         if hdu_uncertainty is not None and hdu_uncertainty in hdus:
             unc_hdu = hdus[hdu_uncertainty]
-            stored_unc_name = unc_hdu.header[key_uncertainty_type]
+            stored_unc_name = unc_hdu.header.get(key_uncertainty_type, 'None')
             # For compatibility reasons the default is standard deviation
             # uncertainty because files could have been created before the
             # uncertainty type was stored in the header.
@@ -556,7 +591,7 @@ def fits_ccddata_reader(filename, hdu=0, unit=None, hdu_uncertainty='UNCERT',
                     comb_hdr.extend(hdr, unique=True)
                     hdr = comb_hdr
                     log.info("first HDU with data is extension "
-                             "{0}.".format(hdu))
+                             "{}.".format(hdu))
                     break
 
         if 'bunit' in hdr:
@@ -583,8 +618,8 @@ def fits_ccddata_reader(filename, hdu=0, unit=None, hdu_uncertainty='UNCERT',
                         'file before reading it.'
                         .format(fits_unit_string))
             else:
-                log.info("using the unit {0} passed to the FITS reader instead "
-                         "of the unit {1} in the FITS file."
+                log.info("using the unit {} passed to the FITS reader instead "
+                         "of the unit {} in the FITS file."
                          .format(unit, fits_unit_string))
 
         use_unit = unit or fits_unit_string
@@ -646,13 +681,3 @@ with registry.delay_doc_updates(CCDData):
     registry.register_reader('fits', CCDData, fits_ccddata_reader)
     registry.register_writer('fits', CCDData, fits_ccddata_writer)
     registry.register_identifier('fits', CCDData, fits.connect.is_fits)
-
-try:
-    CCDData.read.__doc__ = fits_ccddata_reader.__doc__
-except AttributeError:
-    CCDData.read.__func__.__doc__ = fits_ccddata_reader.__doc__
-
-try:
-    CCDData.write.__doc__ = fits_ccddata_writer.__doc__
-except AttributeError:
-    CCDData.write.__func__.__doc__ = fits_ccddata_writer.__doc__

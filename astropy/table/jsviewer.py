@@ -30,8 +30,8 @@ class Conf(_config.ConfigNamespace):
 conf = Conf()
 
 
-EXTERN_JS_DIR = abspath(join(dirname(extern.__file__), 'js'))
-EXTERN_CSS_DIR = abspath(join(dirname(extern.__file__), 'css'))
+EXTERN_JS_DIR = abspath(join(dirname(extern.__file__), 'jquery', 'data', 'js'))
+EXTERN_CSS_DIR = abspath(join(dirname(extern.__file__), 'jquery', 'data', 'css'))
 
 _SORTING_SCRIPT_PART_1 = """
 var astropy_sort_num = function(a, b) {{
@@ -154,7 +154,7 @@ class JSViewer:
             return conf.datatables_url[:-3]
 
     def ipynb(self, table_id, css=None, sort_columns='[]'):
-        html = '<style>{0}</style>'.format(css if css is not None
+        html = '<style>{}</style>'.format(css if css is not None
                                            else DEFAULT_CSS_NB)
         html += IPYNB_JS_SCRIPT.format(
             display_length=self.display_length,

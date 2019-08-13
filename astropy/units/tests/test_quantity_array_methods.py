@@ -298,13 +298,10 @@ class TestQuantityStatsFuncs:
     def test_prod(self):
 
         q1 = np.array([1, 2, 6]) * u.m
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(u.UnitsError) as exc:
             q1.prod()
-        assert 'cannot use prod' in exc.value.args[0]
-
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(u.UnitsError) as exc:
             np.prod(q1)
-        assert 'cannot use prod' in exc.value.args[0]
 
         q2 = np.array([3., 4., 5.]) * u.Unit(1)
         assert q2.prod() == 60. * u.Unit(1)
@@ -313,13 +310,10 @@ class TestQuantityStatsFuncs:
     def test_cumprod(self):
 
         q1 = np.array([1, 2, 6]) * u.m
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(u.UnitsError) as exc:
             q1.cumprod()
-        assert 'cannot use cumprod' in exc.value.args[0]
-
-        with pytest.raises(ValueError) as exc:
+        with pytest.raises(u.UnitsError) as exc:
             np.cumprod(q1)
-        assert 'cannot use cumprod' in exc.value.args[0]
 
         q2 = np.array([3, 4, 5]) * u.Unit(1)
         assert np.all(q2.cumprod() == np.array([3, 12, 60]) * u.Unit(1))
@@ -336,15 +330,6 @@ class TestQuantityStatsFuncs:
         q1 = np.array([1., 2., 4., 10.]) * u.m
         assert np.all(q1.ediff1d() == np.array([1., 2., 6.]) * u.m)
         assert np.all(np.ediff1d(q1) == np.array([1., 2., 6.]) * u.m)
-
-    @pytest.mark.xfail
-    def test_dot_func(self):
-
-        q1 = np.array([1., 2., 4., 10.]) * u.m
-        q2 = np.array([3., 4., 5., 6.]) * u.s
-        q3 = np.dot(q1, q2)
-        assert q3.value == np.dot(q1.value, q2.value)
-        assert q3.unit == u.m * u.s
 
     def test_dot_meth(self):
 
@@ -414,7 +399,9 @@ class TestArrayConversion:
         with pytest.raises(TypeError):
             q1[1] = 1.5 * u.m / u.km
 
+    def test_take_put(self):
         q1 = np.array([1, 2, 3]) * u.m / u.km
+        assert q1.take(1) == 2 * u.m / u.km
         assert all(q1.take((0, 2)) == np.array([1, 3]) * u.m / u.km)
         q1.put((1, 2), (3, 4))
         assert np.all(q1.take((1, 2)) == np.array([3000, 4000]) * q1.unit)

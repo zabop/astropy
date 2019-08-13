@@ -6,9 +6,11 @@ import itertools
 import re
 import warnings
 
-from .card import Card, _pad, KEYWORD_LENGTH
+from .card import Card, _pad, KEYWORD_LENGTH, UNDEFINED
 from .file import _File
-from .util import encode_ascii, decode_ascii, fileobj_closed, fileobj_is_binary
+from .util import (encode_ascii, decode_ascii, fileobj_closed,
+                   fileobj_is_binary, path_like)
+from ._utils import parse_header
 
 from astropy.utils import isiterable
 from astropy.utils.exceptions import AstropyUserWarning
@@ -33,7 +35,8 @@ VALID_HEADER_CHARS = set(map(chr, range(0x20, 0x7F)))
 END_CARD = 'END' + ' ' * 77
 
 
-__doctest_skip__ = ['Header', 'Header.*']
+__doctest_skip__ = ['Header', 'Header.comments', 'Header.fromtextfile',
+                    'Header.totextfile', 'Header.set', 'Header.update']
 
 
 class Header:
@@ -147,7 +150,11 @@ class Header:
             # This is RVKC; if only the top-level keyword was specified return
             # the raw value, not the parsed out float value
             return card.rawvalue
-        return card.value
+
+        value = card.value
+        if value == UNDEFINED:
+            return None
+        return value
 
     def __setitem__(self, key, value):
         if self._set_slice(key, value, self):
@@ -162,11 +169,11 @@ class Header:
             if len(value) == 1:
                 value, comment = value[0], None
                 if value is None:
-                    value = ''
+                    value = UNDEFINED
             elif len(value) == 2:
                 value, comment = value
                 if value is None:
-                    value = ''
+                    value = UNDEFINED
                 if comment is None:
                     comment = ''
         else:
@@ -177,6 +184,8 @@ class Header:
             card = self._cards[key]
         elif isinstance(key, tuple):
             card = self._cards[self._cardindex(key)]
+        if value is None:
+            value = UNDEFINED
         if card:
             card.value = value
             if comment is not None:
@@ -218,7 +227,7 @@ class Header:
                 # if keyword is not present raise KeyError.
                 # To delete keyword without caring if they were present,
                 # Header.remove(Keyword) can be used with optional argument ignore_missing as True
-                raise KeyError("Keyword '{}' not found.".format(key))
+                raise KeyError(f"Keyword '{key}' not found.")
 
             for idx in reversed(indices[key]):
                 # Have to copy the indices list since it will be modified below
@@ -327,13 +336,45 @@ class Header:
 
         Parameters
         ----------
-        data : str
-           String containing the entire header.
+        data : str or bytes
+           String or bytes containing the entire header.  In the case of bytes
+           they will be decoded using latin-1 (only plain ASCII characters are
+           allowed in FITS headers but latin-1 allows us to retain any invalid
+           bytes that might appear in malformatted FITS files).
 
         sep : str, optional
             The string separating cards from each other, such as a newline.  By
             default there is no card separator (as is the case in a raw FITS
-            file).
+            file).  In general this is only used in cases where a header was
+            printed as text (e.g. with newlines after each card) and you want
+            to create a new `Header` from it by copy/pasting.
+
+        Examples
+        --------
+
+        >>> from astropy.io.fits import Header
+        >>> hdr = Header({'SIMPLE': True})
+        >>> Header.fromstring(hdr.tostring()) == hdr
+        True
+
+        If you want to create a `Header` from printed text it's not necessary
+        to have the exact binary structure as it would appear in a FITS file,
+        with the full 80 byte card length.  Rather, each "card" can end in a
+        newline and does not have to be padded out to a full card length as
+        long as it "looks like" a FITS header:
+
+        >>> hdr = Header.fromstring(\"\"\"\\
+        ... SIMPLE  =                    T / conforms to FITS standard
+        ... BITPIX  =                    8 / array data type
+        ... NAXIS   =                    0 / number of array dimensions
+        ... EXTEND  =                    T
+        ... \"\"\", sep='\\n')
+        >>> hdr['SIMPLE']
+        True
+        >>> hdr['BITPIX']
+        8
+        >>> len(hdr)
+        4
 
         Returns
         -------
@@ -349,6 +390,23 @@ class Header:
         # contains non-valid characters (namely \n) the cards may be split
         # immediately at the separator
         require_full_cardlength = set(sep).issubset(VALID_HEADER_CHARS)
+
+        if isinstance(data, bytes):
+            # FITS supports only ASCII, but decode as latin1 and just take all
+            # bytes for now; if it results in mojibake due to e.g. UTF-8
+            # encoded data in a FITS header that's OK because it shouldn't be
+            # there in the first place--accepting it here still gives us the
+            # opportunity to display warnings later during validation
+            CONTINUE = b'CONTINUE'
+            END = b'END'
+            end_card = END_CARD.encode('ascii')
+            sep = sep.encode('latin1')
+            empty = b''
+        else:
+            CONTINUE = 'CONTINUE'
+            END = 'END'
+            end_card = END_CARD
+            empty = ''
 
         # Split the header into individual cards
         idx = 0
@@ -367,17 +425,17 @@ class Header:
             idx = end_idx + len(sep)
 
             if image:
-                if next_image[:8] == 'CONTINUE':
+                if next_image[:8] == CONTINUE:
                     image.append(next_image)
                     continue
-                cards.append(Card.fromstring(''.join(image)))
+                cards.append(Card.fromstring(empty.join(image)))
 
             if require_full_cardlength:
-                if next_image == END_CARD:
+                if next_image == end_card:
                     image = []
                     break
             else:
-                if next_image.split(sep)[0].rstrip() == 'END':
+                if next_image.split(sep)[0].rstrip() == END:
                     image = []
                     break
 
@@ -385,9 +443,9 @@ class Header:
 
         # Add the last image that was found before the end, if any
         if image:
-            cards.append(Card.fromstring(''.join(image)))
+            cards.append(Card.fromstring(empty.join(image)))
 
-        return cls(cards)
+        return cls._fromcards(cards)
 
     @classmethod
     def fromfile(cls, fileobj, sep='', endcard=True, padding=True):
@@ -424,11 +482,20 @@ class Header:
         """
 
         close_file = False
-        if isinstance(fileobj, str):
-            # Open in text mode by default to support newline handling; if a
-            # binary-mode file object is passed in, the user is on their own
-            # with respect to newline handling
-            fileobj = open(fileobj, 'r')
+
+        if isinstance(fileobj, path_like):
+            # If sep is non-empty we are trying to read a header printed to a
+            # text file, so open in text mode by default to support newline
+            # handling; if a binary-mode file object is passed in, the user is
+            # then on their own w.r.t. newline handling.
+            #
+            # Otherwise assume we are reading from an actual FITS file and open
+            # in binary mode.
+            if sep:
+                fileobj = open(fileobj, 'r', encoding='latin1')
+            else:
+                fileobj = open(fileobj, 'rb')
+
             close_file = True
 
         try:
@@ -448,6 +515,19 @@ class Header:
         finally:
             if close_file:
                 fileobj.close()
+
+    @classmethod
+    def _fromcards(cls, cards):
+        header = cls()
+        for idx, card in enumerate(cards):
+            header._cards.append(card)
+            keyword = Card.normalize_keyword(card.keyword)
+            header._keyword_indices[keyword].append(idx)
+            if card.field_specifier is not None:
+                header._rvkc_indices[card.rawkeyword].append(idx)
+
+        header._modified = False
+        return header
 
     @classmethod
     def _from_blocks(cls, block_iter, is_binary, sep, endcard, padding):
@@ -516,34 +596,8 @@ class Header:
             raise OSError('Header missing END card.')
 
         header_str = ''.join(read_blocks)
-
-        # Strip any zero-padding (see ticket #106)
-        if header_str and header_str[-1] == '\0':
-            if is_eof and header_str.strip('\0') == '':
-                # TODO: Pass this warning to validation framework
-                warnings.warn(
-                    'Unexpected extra padding at the end of the file.  This '
-                    'padding may not be preserved when saving changes.',
-                    AstropyUserWarning)
-                raise EOFError()
-            else:
-                # Replace the illegal null bytes with spaces as required by
-                # the FITS standard, and issue a nasty warning
-                # TODO: Pass this warning to validation framework
-                warnings.warn(
-                    'Header block contains null bytes instead of spaces for '
-                    'padding, and is not FITS-compliant. Nulls may be '
-                    'replaced with spaces upon writing.', AstropyUserWarning)
-                header_str.replace('\0', ' ')
-
-        if padding and (len(header_str) % actual_block_size) != 0:
-            # This error message ignores the length of the separator for
-            # now, but maybe it shouldn't?
-            actual_len = len(header_str) - actual_block_size + BLOCK_SIZE
-            # TODO: Pass this error to validation framework
-            raise ValueError(
-                'Header size is not multiple of {0}: {1}'.format(BLOCK_SIZE,
-                                                                 actual_len))
+        _check_padding(header_str, actual_block_size, is_eof,
+                       check_block_size=padding)
 
         return header_str, cls.fromstring(header_str, sep=sep)
 
@@ -572,7 +626,7 @@ class Header:
                     trailing = repr(trailing).lstrip('ub')
                     # TODO: Pass this warning up to the validation framework
                     warnings.warn(
-                        'Unexpected bytes trailing END keyword: {0}; these '
+                        'Unexpected bytes trailing END keyword: {}; these '
                         'bytes will be replaced with spaces on write.'.format(
                             trailing), AstropyUserWarning)
                 else:
@@ -580,7 +634,7 @@ class Header:
                     warnings.warn(
                         'Missing padding to end of the FITS block after the '
                         'END keyword; additional spaces will be appended to '
-                        'the file upon writing to pad out to {0} '
+                        'the file upon writing to pad out to {} '
                         'bytes.'.format(BLOCK_SIZE), AstropyUserWarning)
 
                 # Sanitize out invalid END card now that the appropriate
@@ -770,7 +824,7 @@ class Header:
             A new :class:`Header` instance.
         """
 
-        tmp = Header((copy.copy(card) for card in self._cards))
+        tmp = Header(copy.copy(card) for card in self._cards)
         if strip:
             tmp._strip()
         return tmp
@@ -938,13 +992,14 @@ class Header:
         instance has the same behavior.
         """
 
-        return self.__iter__()
+        for card in self._cards:
+            yield card.keyword
 
     def values(self):
         """Like :meth:`dict.values`."""
 
-        for _, v in self.items():
-            yield v
+        for card in self._cards:
+            yield card.value
 
     def pop(self, *args):
         """
@@ -1079,6 +1134,9 @@ class Header:
 
         if other is None:
             pass
+        elif isinstance(other, Header):
+            for card in other.cards:
+                self._update(card)
         elif hasattr(other, 'items'):
             for k, v in other.items():
                 update_from_dict(k, v)
@@ -1241,7 +1299,7 @@ class Header:
             temp._strip()
 
         if len(self):
-            first = self.cards[0].keyword
+            first = self._cards[0].keyword
         else:
             first = None
 
@@ -1307,7 +1365,7 @@ class Header:
         # We have to look before we leap, since otherwise _keyword_indices,
         # being a defaultdict, will create an entry for the nonexistent keyword
         if keyword not in self._keyword_indices:
-            raise KeyError("Keyword {!r} not found.".format(keyword))
+            raise KeyError(f"Keyword {keyword!r} not found.")
 
         return len(self._keyword_indices[keyword])
 
@@ -1470,7 +1528,7 @@ class Header:
                 while keyword in self._keyword_indices:
                     del self[self._keyword_indices[keyword][0]]
         elif not ignore_missing:
-            raise KeyError("Keyword '{}' not found.".format(keyword))
+            raise KeyError(f"Keyword '{keyword}' not found.")
 
     def rename_keyword(self, oldkeyword, newkeyword, force=False):
         """
@@ -1504,10 +1562,10 @@ class Header:
                                  'renamed to each other.')
         elif not force and newkeyword in self:
             raise ValueError('Intended keyword {} already exists in header.'
-                            .format(newkeyword))
+                             .format(newkeyword))
 
         idx = self.index(oldkeyword)
-        card = self.cards[idx]
+        card = self._cards[idx]
         del self[idx]
         self.insert(idx, (newkeyword, card.value, card.comment))
 
@@ -1645,13 +1703,13 @@ class Header:
 
         if keyword and not indices:
             if len(keyword) > KEYWORD_LENGTH or '.' in keyword:
-                raise KeyError("Keyword {!r} not found.".format(keyword))
+                raise KeyError(f"Keyword {keyword!r} not found.")
             else:
                 # Maybe it's a RVKC?
                 indices = self._rvkc_indices.get(keyword, None)
 
         if not indices:
-            raise KeyError("Keyword {!r} not found.".format(keyword))
+            raise KeyError(f"Keyword {keyword!r} not found.")
 
         try:
             return indices[n]
@@ -1908,6 +1966,126 @@ collections.abc.MutableSequence.register(Header)
 collections.abc.MutableMapping.register(Header)
 
 
+class _DelayedHeader:
+    """
+    Descriptor used to create the Header object from the header string that
+    was stored in HDU._header_str when parsing the file.
+    """
+
+    def __get__(self, obj, owner=None):
+        try:
+            return obj.__dict__['_header']
+        except KeyError:
+            if obj._header_str is not None:
+                hdr = Header.fromstring(obj._header_str)
+                obj._header_str = None
+            else:
+                raise AttributeError("'{}' object has no attribute '_header'"
+                                     .format(obj.__class__.__name__))
+
+            obj.__dict__['_header'] = hdr
+            return hdr
+
+    def __set__(self, obj, val):
+        obj.__dict__['_header'] = val
+
+    def __delete__(self, obj):
+        del obj.__dict__['_header']
+
+
+class _BasicHeaderCards:
+    """
+    This class allows to access cards with the _BasicHeader.cards attribute.
+
+    This is needed because during the HDU class detection, some HDUs uses
+    the .cards interface.  Cards cannot be modified here as the _BasicHeader
+    object will be deleted once the HDU object is created.
+
+    """
+
+    def __init__(self, header):
+        self.header = header
+
+    def __getitem__(self, key):
+        # .cards is a list of cards, so key here is an integer.
+        # get the keyword name from its index.
+        key = self.header._keys[key]
+        # then we get the card from the _BasicHeader._cards list, or parse it
+        # if needed.
+        try:
+            return self.header._cards[key]
+        except KeyError:
+            cardstr = self.header._raw_cards[key]
+            card = Card.fromstring(cardstr)
+            self.header._cards[key] = card
+            return card
+
+
+class _BasicHeader(collections.abc.Mapping):
+    """This class provides a fast header parsing, without all the additional
+    features of the Header class. Here only standard keywords are parsed, no
+    support for CONTINUE, HIERARCH, COMMENT, HISTORY, or rvkc.
+
+    The raw card images are stored and parsed only if needed. The idea is that
+    to create the HDU objects, only a small subset of standard cards is needed.
+    Once a card is parsed, which is deferred to the Card class, the Card object
+    is kept in a cache. This is useful because a small subset of cards is used
+    a lot in the HDU creation process (NAXIS, XTENSION, ...).
+
+    """
+
+    def __init__(self, cards):
+        # dict of (keywords, card images)
+        self._raw_cards = cards
+        self._keys = list(cards.keys())
+        # dict of (keyword, Card object) storing the parsed cards
+        self._cards = {}
+        # the _BasicHeaderCards object allows to access Card objects from
+        # keyword indices
+        self.cards = _BasicHeaderCards(self)
+
+        self._modified = False
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            key = self._keys[key]
+
+        try:
+            return self._cards[key].value
+        except KeyError:
+            # parse the Card and store it
+            cardstr = self._raw_cards[key]
+            self._cards[key] = card = Card.fromstring(cardstr)
+            return card.value
+
+    def __len__(self):
+        return len(self._raw_cards)
+
+    def __iter__(self):
+        return iter(self._raw_cards)
+
+    def index(self, keyword):
+        return self._keys.index(keyword)
+
+    @classmethod
+    def fromfile(cls, fileobj):
+        """The main method to parse a FITS header from a file. The parsing is
+        done with the parse_header function implemented in Cython."""
+
+        close_file = False
+        if isinstance(fileobj, str):
+            fileobj = open(fileobj, 'rb')
+            close_file = True
+
+        try:
+            header_str, cards = parse_header(fileobj)
+            _check_padding(header_str, BLOCK_SIZE, False)
+            return header_str, cls(cards)
+        finally:
+            if close_file:
+                fileobj.close()
+
+
 class _CardAccessor:
     """
     This is a generic class for wrapping a Header in such a way that you can
@@ -2064,7 +2242,7 @@ class _HeaderCommentaryCards(_CardAccessor):
             n._indices = idx.indices(self._count)
             return n
         elif not isinstance(idx, int):
-            raise ValueError('{} index must be an integer'.format(self._keyword))
+            raise ValueError(f'{self._keyword} index must be an integer')
 
         idx = list(range(*self._indices))[idx]
         return self._header[(self._keyword, idx)]
@@ -2097,3 +2275,32 @@ def _pad_length(stringlen):
     """Bytes needed to pad the input stringlen to the next FITS block."""
 
     return (BLOCK_SIZE - (stringlen % BLOCK_SIZE)) % BLOCK_SIZE
+
+
+def _check_padding(header_str, block_size, is_eof, check_block_size=True):
+    # Strip any zero-padding (see ticket #106)
+    if header_str and header_str[-1] == '\0':
+        if is_eof and header_str.strip('\0') == '':
+            # TODO: Pass this warning to validation framework
+            warnings.warn(
+                'Unexpected extra padding at the end of the file.  This '
+                'padding may not be preserved when saving changes.',
+                AstropyUserWarning)
+            raise EOFError()
+        else:
+            # Replace the illegal null bytes with spaces as required by
+            # the FITS standard, and issue a nasty warning
+            # TODO: Pass this warning to validation framework
+            warnings.warn(
+                'Header block contains null bytes instead of spaces for '
+                'padding, and is not FITS-compliant. Nulls may be '
+                'replaced with spaces upon writing.', AstropyUserWarning)
+            header_str.replace('\0', ' ')
+
+    if check_block_size and (len(header_str) % block_size) != 0:
+        # This error message ignores the length of the separator for
+        # now, but maybe it shouldn't?
+        actual_len = len(header_str) - block_size + BLOCK_SIZE
+        # TODO: Pass this error to validation framework
+        raise ValueError('Header size is not multiple of {}: {}'
+                         .format(BLOCK_SIZE, actual_len))

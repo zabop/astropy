@@ -5,6 +5,7 @@
 import warnings
 
 import numpy as np
+import pytest
 from numpy.testing import assert_equal, assert_allclose
 
 from astropy import units as u
@@ -49,21 +50,34 @@ def test_empty():
     assert_allclose(wcs.pixel_to_world_values(29), 29)
     assert_allclose(wcs.array_index_to_world_values(29), 29)
 
+    assert np.ndim(wcs.pixel_to_world_values(29)) == 0
+    assert np.ndim(wcs.array_index_to_world_values(29)) == 0
+
     assert_allclose(wcs.world_to_pixel_values(29), 29)
     assert_equal(wcs.world_to_array_index_values(29), (29,))
+
+    assert np.ndim(wcs.world_to_pixel_values(29)) == 0
+    assert np.ndim(wcs.world_to_array_index_values(29)) == 0
 
     # High-level API
 
     coord = wcs.pixel_to_world(29)
     assert_quantity_allclose(coord, 29 * u.one)
+    assert np.ndim(coord) == 0
+
+    coord = wcs.array_index_to_world(29)
+    assert_quantity_allclose(coord, 29 * u.one)
+    assert np.ndim(coord) == 0
 
     coord = 15 * u.one
 
     x = wcs.world_to_pixel(coord)
     assert_allclose(x, 15.)
+    assert np.ndim(x) == 0
 
     i = wcs.world_to_array_index(coord)
-    assert_equal(i, (15,))
+    assert_equal(i, 15)
+    assert np.ndim(i) == 0
 
 
 ###############################################################################
@@ -288,13 +302,33 @@ def test_spectral_cube_nonaligned():
 
     wcs = WCS_SPECTRAL_CUBE_NONALIGNED
 
+    assert wcs.world_axis_physical_types == ['pos.galactic.lat', 'em.freq', 'pos.galactic.lon']
+    assert wcs.world_axis_units == ['deg', 'Hz', 'deg']
+
     assert_equal(wcs.axis_correlation_matrix, [[True, True, True], [False, True, True], [True, True, True]])
 
+    # NOTE: we check world_axis_object_components and world_axis_object_classes
+    # again here because in the past this failed when non-aligned axes were
+    # present, so this serves as a regression test.
+
+    assert wcs.world_axis_object_components == [('celestial', 1, 'spherical.lat.degree'),
+                                                  ('freq', 0, 'value'),
+                                                  ('celestial', 0, 'spherical.lon.degree')]
+
+    assert wcs.world_axis_object_classes['celestial'][0] is SkyCoord
+    assert wcs.world_axis_object_classes['celestial'][1] == ()
+    assert isinstance(wcs.world_axis_object_classes['celestial'][2]['frame'], Galactic)
+    assert wcs.world_axis_object_classes['celestial'][2]['unit'] is u.deg
+
+    assert wcs.world_axis_object_classes['freq'][0] is Quantity
+    assert wcs.world_axis_object_classes['freq'][1] == ()
+    assert wcs.world_axis_object_classes['freq'][2] == {'unit': 'Hz'}
 
 ###############################################################################
 # The following example is from Rots et al (2015), Table 5. It represents a
 # cube with two spatial dimensions and one time dimension
 ###############################################################################
+
 
 HEADER_TIME_CUBE = """
 SIMPLE  = T / Fits standard
@@ -364,18 +398,20 @@ def test_time_cube():
 
     assert_equal(wcs.axis_correlation_matrix, [[True, True, False], [True, True, False], [False, False, True]])
 
-    assert wcs.world_axis_object_components == [('celestial', 1, 'spherical.lat.degree'),
-                                                  ('celestial', 0, 'spherical.lon.degree'),
-                                                  ('utc', 0, 'value')]
+    with pytest.warns(FutureWarning):
+        assert wcs.world_axis_object_components == [
+            ('celestial', 1, 'spherical.lat.degree'),
+            ('celestial', 0, 'spherical.lon.degree'),
+            ('utc', 0, 'value')]
 
-    assert wcs.world_axis_object_classes['celestial'][0] is SkyCoord
-    assert wcs.world_axis_object_classes['celestial'][1] == ()
-    assert isinstance(wcs.world_axis_object_classes['celestial'][2]['frame'], ICRS)
-    assert wcs.world_axis_object_classes['celestial'][2]['unit'] is u.deg
+        assert wcs.world_axis_object_classes['celestial'][0] is SkyCoord
+        assert wcs.world_axis_object_classes['celestial'][1] == ()
+        assert isinstance(wcs.world_axis_object_classes['celestial'][2]['frame'], ICRS)
+        assert wcs.world_axis_object_classes['celestial'][2]['unit'] is u.deg
 
-    assert wcs.world_axis_object_classes['utc'][0] is Quantity
-    assert wcs.world_axis_object_classes['utc'][1] == ()
-    assert wcs.world_axis_object_classes['utc'][2] == {'unit': 's'}
+        assert wcs.world_axis_object_classes['utc'][0] is Quantity
+        assert wcs.world_axis_object_classes['utc'][1] == ()
+        assert wcs.world_axis_object_classes['utc'][2] == {'unit': 's'}
 
     assert_allclose(wcs.pixel_to_world_values(-449.2, 2955.6, 0),
                     (14.8289418840003, 2.01824372640628, 2375.341))

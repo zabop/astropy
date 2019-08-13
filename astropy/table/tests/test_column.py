@@ -69,7 +69,7 @@ class TestColumn():
 
     def test_view(self, Column):
         c = np.array([1, 2, 3], dtype=np.int64).view(Column)
-        assert repr(c) == "<{0} dtype='int64' length=3>\n1\n2\n3".format(Column.__name__)
+        assert repr(c) == f"<{Column.__name__} dtype='int64' length=3>\n1\n2\n3"
 
     def test_format(self, Column):
         """Show that the formatted output from str() works"""
@@ -152,6 +152,16 @@ class TestColumn():
         assert np.all(c.data == np.array([100, 200, 300]))
         assert np.all(c.unit == u.cm)
 
+    def test_quantity_comparison(self, Column):
+        # regression test for gh-6532
+        c = Column([1, 2100, 3], unit='Hz')
+        q = 2 * u.kHz
+        check = c < q
+        assert np.all(check == [True, False, True])
+        # This already worked, but just in case.
+        check = q >= c
+        assert np.all(check == [True, False, True])
+
     def test_attrs_survive_getitem_after_change(self, Column):
         """
         Test for issue #3023: when calling getitem with a MaskedArray subclass
@@ -223,6 +233,21 @@ class TestColumn():
         d3 = Column(['arg', 'name', 'stuff'], name='a', unit="m")
         with pytest.raises(TypeError):
             d3.quantity
+
+    def test_to_funcunit_quantity(self, Column):
+        """
+        Tests for #8424, check if function-unit can be retrieved from column.
+        """
+        d = Column([1, 2, 3], name='a', dtype="f8", unit="dex(AA)")
+
+        assert np.all(d.quantity == ([1, 2, 3] * u.dex(u.AA)))
+        assert np.all(d.quantity.value == ([1, 2, 3] * u.dex(u.AA)).value)
+        assert np.all(d.quantity == d.to("dex(AA)"))
+        assert np.all(d.quantity.value == d.to("dex(AA)").value)
+
+        # make sure, casting to linear unit works
+        q = [10, 100, 1000] * u.AA
+        np.testing.assert_allclose(d.to(u.AA), q)
 
     def test_item_access_type(self, Column):
         """
@@ -333,6 +358,12 @@ class TestColumn():
             c1 = c.insert(1, 100, mask=mask)
             assert np.all(c1.data.data == [0, 100, 1, 2])
             assert np.all(c1.data.mask == [False, mask, True, False])
+
+    def test_masked_multidim_as_list(self):
+        data = np.ma.MaskedArray([1, 2], mask=[True, False])
+        c = table.MaskedColumn([data])
+        assert c.shape == (1, 2)
+        assert np.all(c[0].mask == [True, False])
 
     def test_insert_masked_multidim(self):
         c = table.MaskedColumn([[1, 2],
@@ -638,7 +669,7 @@ def test_col_unicode_sandwich_create_from_str(Column):
     """
     # a-umlaut is a 2-byte character in utf-8, test fails with ascii encoding.
     # Stress the system by injecting non-ASCII characters.
-    uba = u'bä'
+    uba = 'bä'
     c = Column([uba, 'def'], dtype='S')
     assert c.dtype.char == 'S'
     assert c[0] == uba
@@ -655,7 +686,7 @@ def test_col_unicode_sandwich_bytes(Column):
     """
     # a-umlaut is a 2-byte character in utf-8, test fails with ascii encoding.
     # Stress the system by injecting non-ASCII characters.
-    uba = u'bä'
+    uba = 'bä'
     uba8 = uba.encode('utf-8')
     c = Column([uba8, b'def'])
     assert c.dtype.char == 'S'
@@ -675,7 +706,7 @@ def test_col_unicode_sandwich_bytes(Column):
     assert ok.dtype.char == '?'
     assert np.all(ok)
 
-    assert np.all(c == np.array([uba, u'def']))
+    assert np.all(c == np.array([uba, 'def']))
     assert np.all(c == np.array([uba8, b'def']))
 
     # Scalar compare
@@ -691,7 +722,7 @@ def test_col_unicode_sandwich_unicode():
     Sanity check that Unicode Column behaves normally.
     """
     # On Py2 the unicode must be ASCII-compatible, else the final test fails.
-    uba = u'bä'
+    uba = 'bä'
     uba8 = uba.encode('utf-8')
 
     c = table.Column([uba, 'def'], dtype='U')
@@ -731,10 +762,10 @@ def test_masked_col_unicode_sandwich():
     assert ok[0] == True
     assert ok[1] is np.ma.masked
     assert np.all(c == [b'abc', b'def'])
-    assert np.all(c == np.array([u'abc', u'def']))
+    assert np.all(c == np.array(['abc', 'def']))
     assert np.all(c == np.array([b'abc', b'def']))
 
-    for cmp in (u'abc', b'abc'):
+    for cmp in ('abc', b'abc'):
         ok = c == cmp
         assert type(ok) is np.ma.MaskedArray
         assert ok[0] == True
@@ -746,19 +777,19 @@ def test_unicode_sandwich_set(Column):
     """
     Test setting
     """
-    uba = u'bä'
+    uba = 'bä'
 
     c = Column([b'abc', b'def'])
 
     c[0] = b'aa'
-    assert np.all(c == [u'aa', u'def'])
+    assert np.all(c == ['aa', 'def'])
 
     c[0] = uba  # a-umlaut is a 2-byte character in utf-8, test fails with ascii encoding
-    assert np.all(c == [uba, u'def'])
-    assert c.pformat() == [u'None', u'----', '  ' + uba, u' def']
+    assert np.all(c == [uba, 'def'])
+    assert c.pformat() == ['None', '----', '  ' + uba, ' def']
 
     c[:] = b'cc'
-    assert np.all(c == [u'cc', u'cc'])
+    assert np.all(c == ['cc', 'cc'])
 
     c[:] = uba
     assert np.all(c == [uba, uba])

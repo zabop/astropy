@@ -38,7 +38,7 @@ def test_m31_coord_transforms(fromsys, tosys, fromcoo, tocoo):
     coo1 = fromsys(ra=fromcoo[0]*u.deg, dec=fromcoo[1]*u.deg, distance=m31_dist)
     coo2 = coo1.transform_to(tosys)
     if tosys is FK4:
-        coo2_prec = coo2.transform_to(FK4(equinox=Time('B1950', scale='utc')))
+        coo2_prec = coo2.transform_to(FK4(equinox=Time('B1950')))
         assert (coo2_prec.spherical.lon - tocoo[0]*u.deg) < convert_precision  # <1 arcsec
         assert (coo2_prec.spherical.lat - tocoo[1]*u.deg) < convert_precision
     else:
@@ -60,10 +60,10 @@ def test_precession():
     """
     Ensures that FK4 and FK5 coordinates precess their equinoxes
     """
-    j2000 = Time('J2000', scale='utc')
-    b1950 = Time('B1950', scale='utc')
-    j1975 = Time('J1975', scale='utc')
-    b1975 = Time('B1975', scale='utc')
+    j2000 = Time('J2000')
+    b1950 = Time('B1950')
+    j1975 = Time('J1975')
+    b1975 = Time('B1975')
 
     fk4 = FK4(ra=1*u.radian, dec=0.5*u.radian)
     assert fk4.equinox.byear == b1950.byear
@@ -290,3 +290,22 @@ def test_lsr_sanity():
     gal_icrs = vel.transform_to(Galactic).cartesian.xyz
     assert allclose(gal_icrs.to(u.km/u.s, u.dimensionless_angles()),
                     -lsr.v_bary.d_xyz)
+
+
+def test_hcrs_icrs_differentials():
+    # Regression to ensure that we can transform velocities from HCRS to LSR.
+    # Numbers taken from the original issue, gh-6835.
+    hcrs = HCRS(ra=8.67*u.deg, dec=53.09*u.deg, distance=117*u.pc,
+                pm_ra_cosdec=4.8*u.mas/u.yr, pm_dec=-15.16*u.mas/u.yr,
+                radial_velocity=23.42*u.km/u.s)
+    icrs = hcrs.transform_to(ICRS)
+
+    # The position and velocity should not change much
+    assert allclose(hcrs.cartesian.xyz, icrs.cartesian.xyz, rtol=1e-8)
+    assert allclose(hcrs.velocity.d_xyz, icrs.velocity.d_xyz, rtol=1e-2)
+
+    hcrs2 = icrs.transform_to(HCRS)
+
+    # The values should round trip
+    assert allclose(hcrs.cartesian.xyz, hcrs2.cartesian.xyz, rtol=1e-12)
+    assert allclose(hcrs.velocity.d_xyz, hcrs2.velocity.d_xyz, rtol=1e-12)

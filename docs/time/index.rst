@@ -129,7 +129,7 @@ can only have scales in which one day is always equal to 86400 seconds.
    '2007-01-01T04:21:49.579' '2008-01-01T10:54:33.386'
    '2008-12-31T17:27:17.193' '2010-01-01T00:00:00.000']>
 
-  >>> t.sidereal_time('apparent', 'greenwich')  # doctest: +FLOAT_CMP
+  >>> t.sidereal_time('apparent', 'greenwich')  # doctest: +FLOAT_CMP +REMOTE_DATA
   <Longitude [6.68050179, 6.70281947] hourangle>
 
 Using `astropy.time`
@@ -508,7 +508,7 @@ when inputting time values from strings.  The default precision is 3.  Note
 that the limit of 9 digits is driven by the way that ERFA handles fractional
 seconds.  In practice this should should not be an issue.  ::
 
-  >>> t = Time('B1950.0', scale='utc', precision=3)
+  >>> t = Time('B1950.0', precision=3)
   >>> t.byear_str
   'B1950.000'
   >>> t.precision = 0
@@ -571,9 +571,9 @@ no explicit longitude is given.
 
   >>> t = Time('2001-03-22 00:01:44.732327132980', scale='utc',
   ...          location=('120d', '40d'))
-  >>> t.sidereal_time('apparent', 'greenwich')  # doctest: +FLOAT_CMP
+  >>> t.sidereal_time('apparent', 'greenwich')  # doctest: +FLOAT_CMP +REMOTE_DATA
   <Longitude 12. hourangle>
-  >>> t.sidereal_time('apparent')  # doctest: +FLOAT_CMP
+  >>> t.sidereal_time('apparent')  # doctest: +FLOAT_CMP +REMOTE_DATA
   <Longitude 20. hourangle>
 
 .. note:: In future versions, we hope to add the possibility to add observatory
@@ -892,7 +892,7 @@ longitude).::
   ...          location=(-155.933222*u.deg, 19.48125*u.deg))
   >>> t.utc.iso
   '2006-01-15 21:24:37.500'
-  >>> t.ut1.iso
+  >>> t.ut1.iso  # doctest: +REMOTE_DATA
   '2006-01-15 21:24:37.834'
   >>> t.tai.iso
   '2006-01-15 21:25:10.500'
@@ -905,6 +905,17 @@ longitude).::
   >>> t.tcb.iso
   '2006-01-15 21:25:56.894'
 
+Hashing
+^^^^^^^
+
+One can generate a unique hash key for scalar (0-dimensional) |Time| or
+|TimeDelta| objects.  The key is based on a tuple of ``jd1``,
+``jd2``, ``scale``, and ``location`` (if present, ``None`` otherwise).
+
+Note that two |Time| objects with a different ``scale`` can compare equal
+but still have different hash keys.  This a practical consideration driven
+in by performance, but in most cases represents a desirable behavior.
+
 Sidereal Time
 -------------
 
@@ -916,15 +927,15 @@ transformations, ERFA C-library routines are used under the hood, which support
 calculations following different IAU resolutions.  Sample usage::
 
   >>> t = Time('2006-01-15 21:24:37.5', scale='utc', location=('120d', '45d'))
-  >>> t.sidereal_time('mean')  # doctest: +FLOAT_CMP
+  >>> t.sidereal_time('mean')  # doctest: +FLOAT_CMP +REMOTE_DATA
   <Longitude 13.08952187 hourangle>
-  >>> t.sidereal_time('apparent')  # doctest: +FLOAT_CMP
+  >>> t.sidereal_time('apparent')  # doctest: +FLOAT_CMP +REMOTE_DATA
   <Longitude 13.08950368 hourangle>
-  >>> t.sidereal_time('apparent', 'greenwich')  # doctest: +FLOAT_CMP
+  >>> t.sidereal_time('apparent', 'greenwich')  # doctest: +FLOAT_CMP +REMOTE_DATA
   <Longitude 5.08950368 hourangle>
-  >>> t.sidereal_time('apparent', '-90d')  # doctest: +FLOAT_CMP
+  >>> t.sidereal_time('apparent', '-90d')  # doctest: +FLOAT_CMP +REMOTE_DATA
   <Longitude 23.08950368 hourangle>
-  >>> t.sidereal_time('apparent', '-90d', 'IAU1994')  # doctest: +FLOAT_CMP
+  >>> t.sidereal_time('apparent', '-90d', 'IAU1994')  # doctest: +FLOAT_CMP +REMOTE_DATA
   <Longitude 23.08950365 hourangle>
 
 Time Deltas
@@ -1050,17 +1061,17 @@ calculate light travel times to the barycentre as follows::
     >>> from astropy import time, coordinates as coord, units as u
     >>> ip_peg = coord.SkyCoord("23:23:08.55", "+18:24:59.3",
     ...                         unit=(u.hourangle, u.deg), frame='icrs')
-    >>> greenwich = coord.EarthLocation.of_site('greenwich')
+    >>> greenwich = coord.EarthLocation.of_site('greenwich')  # doctest: +REMOTE_DATA
     >>> times = time.Time([56325.95833333, 56325.978254], format='mjd',
-    ...                   scale='utc', location=greenwich)
-    >>> ltt_bary = times.light_travel_time(ip_peg)
-    >>> ltt_bary # doctest: +FLOAT_CMP
+    ...                   scale='utc', location=greenwich)  # doctest: +REMOTE_DATA
+    >>> ltt_bary = times.light_travel_time(ip_peg)  # doctest: +REMOTE_DATA
+    >>> ltt_bary # doctest: +FLOAT_CMP +REMOTE_DATA
     <TimeDelta object: scale='tdb' format='jd' value=[-0.0037715  -0.00377286]>
 
 If you desire the light travel time to the heliocentre instead then use::
 
-    >>> ltt_helio = times.light_travel_time(ip_peg, 'heliocentric')
-    >>> ltt_helio # doctest: +FLOAT_CMP
+    >>> ltt_helio = times.light_travel_time(ip_peg, 'heliocentric') # doctest: +REMOTE_DATA
+    >>> ltt_helio # doctest: +FLOAT_CMP +REMOTE_DATA
     <TimeDelta object: scale='tdb' format='jd' value=[-0.00376576 -0.00376712]>
 
 The method returns an |TimeDelta| object, which can be added to
@@ -1073,7 +1084,7 @@ continually changes at the heliocentre. Thus, the use of a relativistic
 timescale like TDB is not particularly appropriate, and, historically,
 times corrected to the heliocentre are given in the UTC timescale::
 
-    >>> times_heliocentre = times.utc + ltt_helio
+    >>> times_heliocentre = times.utc + ltt_helio  # doctest: +REMOTE_DATA
 
 Corrections to the barycentre are more precise than the heliocentre,
 because the barycenter is a fixed point where gravity is constant. For
@@ -1083,7 +1094,7 @@ whose tick rate is related to the rate that a clock would tick at the
 barycentre. For this reason, barycentric corrected times normally use
 the TDB timescale::
 
-    >>> time_barycentre = times.tdb + ltt_bary
+    >>> time_barycentre = times.tdb + ltt_bary  # doctest: +REMOTE_DATA
 
 By default, the light travel time is calculated using the position and velocity
 of Earth and the Sun from built-in `ERFA <https://github.com/liberfa/erfa>`_ routines,
@@ -1118,9 +1129,9 @@ of time.  Usage is most easily illustrated by examples::
   <Time object: scale='tai' format='gps' value=315576000.0>
   >>> Time(10.*u.yr, 1.*u.s, format='gps')
   <Time object: scale='tai' format='gps' value=315576001.0>
-  >>> Time(2000.*u.yr, scale='utc', format='jyear')
-  <Time object: scale='utc' format='jyear' value=2000.0>
-  >>> Time(2000.*u.yr, scale='utc', format='byear')
+  >>> Time(2000.*u.yr, format='jyear')
+  <Time object: scale='tt' format='jyear' value=2000.0>
+  >>> Time(2000.*u.yr, format='byear')
   ...                                # but not for Besselian year, which implies
   ...                                # a different time scale
   ...

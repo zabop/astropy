@@ -72,13 +72,11 @@ def _read(tmpdir, table, Reader=None, format=None, parallel=False, check_meta=Fa
     if parallel:
         if TRAVIS:
             pytest.xfail("Multiprocessing can sometimes fail on Travis CI")
-        elif os.name == 'nt':
-            pytest.xfail("Multiprocessing is currently unsupported on Windows")
         t6 = ascii.read(table, format=format, guess=False, fast_reader={
             'parallel': True}, **kwargs)
         assert_table_equal(t1, t6, check_meta=check_meta)
 
-    filename = str(tmpdir.join('table{0}.txt'.format(_filename_counter)))
+    filename = str(tmpdir.join(f'table{_filename_counter}.txt'))
     _filename_counter += 1
 
     with open(filename, 'wb') as f:
@@ -413,8 +411,8 @@ A B C
 """
     with pytest.raises(InconsistentTableError) as e:
         table = FastBasic().read(text)
-    assert 'InconsistentTableError: Number of header columns (3) ' \
-           'inconsistent with data columns in data line 2' in str(e)
+    assert 'Number of header columns (3) ' \
+           'inconsistent with data columns in data line 2' in str(e.value)
 
 
 def test_too_many_cols2():
@@ -425,8 +423,8 @@ aaa,bbb
 """
     with pytest.raises(InconsistentTableError) as e:
         table = FastCsv().read(text)
-    assert 'InconsistentTableError: Number of header columns (2) ' \
-           'inconsistent with data columns in data line 0' in str(e)
+    assert 'Number of header columns (2) ' \
+           'inconsistent with data columns in data line 0' in str(e.value)
 
 
 def test_too_many_cols3():
@@ -437,8 +435,8 @@ aaa,bbb
 """
     with pytest.raises(InconsistentTableError) as e:
         table = FastCsv().read(text)
-    assert 'InconsistentTableError: Number of header columns (2) ' \
-           'inconsistent with data columns in data line 0' in str(e)
+    assert 'Number of header columns (2) ' \
+           'inconsistent with data columns in data line 0' in str(e.value)
 
 
 @pytest.mark.parametrize("parallel", [True, False])
@@ -752,17 +750,17 @@ A\tB\tC
     with pytest.raises(ValueError) as e:
         text = 'A\tB\tC\nN\tS\tN\n4\tb\ta'  # C column contains non-numeric data
         read_rdb(text, parallel=parallel)
-    assert 'Column C failed to convert' in str(e)
+    assert 'Column C failed to convert' in str(e.value)
 
     with pytest.raises(ValueError) as e:
         text = 'A\tB\tC\nN\tN\n1\t2\t3'  # not enough types specified
         read_rdb(text, parallel=parallel)
-    assert 'mismatch between number of column names and column types' in str(e)
+    assert 'mismatch between number of column names and column types' in str(e.value)
 
     with pytest.raises(ValueError) as e:
         text = 'A\tB\tC\nN\tN\t5\n1\t2\t3'  # invalid type for column C
         read_rdb(text, parallel=parallel)
-    assert 'type definitions do not all match [num](N|S)' in str(e)
+    assert 'type definitions do not all match [num](N|S)' in str(e.value)
 
 
 @pytest.mark.parametrize("parallel", [True, False])
@@ -796,7 +794,7 @@ A B C
         # tries to begin in the middle of quoted field
         read_basic(text, data_start=4, parallel=parallel)
     assert 'header columns (3) inconsistent with data columns in data line 0' \
-        in str(e)
+        in str(e.value)
 
     table = read_basic(text, data_start=5, parallel=parallel)
     # ignore commented line
@@ -866,7 +864,7 @@ def test_strip_line_trailing_whitespace(parallel, read_basic):
     with pytest.raises(InconsistentTableError) as e:
         ascii.read(StringIO(text), format='fast_basic', guess=False)
     assert 'header columns (3) inconsistent with data columns in data line 0' \
-        in str(e)
+        in str(e.value)
 
     text = 'a b c\n 1 2 3   \t \n 4 5 6 '
     table = read_basic(text, parallel=parallel)
@@ -908,7 +906,8 @@ def test_line_endings(parallel, read_basic, read_commented_header, read_rdb):
         table = read_commented_header(text.replace('\n', newline), parallel=parallel)
         assert_table_equal(table, expected)
 
-    expected = Table([[1, 4, 7], [2, 5, 8], [3, 6, 9]], names=('a', 'b', 'c'), masked=True)
+    expected = Table([MaskedColumn([1, 4, 7]), [2, 5, 8], MaskedColumn([3, 6, 9])],
+                     names=('a', 'b', 'c'))
     expected['a'][0] = np.ma.masked
     expected['c'][0] = np.ma.masked
     text = 'a\tb\tc\nN\tN\tN\n\t2\t\n4\t5\t6\n7\t8\t9\n'
@@ -957,7 +956,7 @@ def test_fast_tab_with_names(parallel, read_tab):
     content = """#
 \tdecDeg\tRate_pn_offAxis\tRate_mos2_offAxis\tObsID\tSourceID\tRADeg\tversion\tCounts_pn\tRate_pn\trun\tRate_mos1\tRate_mos2\tInserted_pn\tInserted_mos2\tbeta\tRate_mos1_offAxis\trcArcsec\tname\tInserted\tCounts_mos1\tInserted_mos1\tCounts_mos2\ty\tx\tCounts\toffAxis\tRot
 -3.007559\t0.0000\t0.0010\t0013140201\t0\t213.462574\t0\t2\t0.0002\t0\t0.0001\t0.0001\t0\t1\t0.66\t0.0217\t3.0\tfakeXMMXCS J1413.8-0300\t3\t1\t2\t1\t398.000\t127.000\t5\t13.9\t72.3\t"""
-    head = ['A{0}'.format(i) for i in range(28)]
+    head = [f'A{i}' for i in range(28)]
     table = read_tab(content, data_start=1,
                      parallel=parallel, names=head)
 
@@ -978,12 +977,12 @@ def test_read_big_table(tmpdir):
     NB_COLS = 500
     filename = str(tmpdir.join("big_table.csv"))
 
-    print("Creating a {} rows table ({} columns).".format(NB_ROWS, NB_COLS))
+    print(f"Creating a {NB_ROWS} rows table ({NB_COLS} columns).")
     data = np.random.random(NB_ROWS)
     t = Table(data=[data]*NB_COLS, names=[str(i) for i in range(NB_COLS)])
     data = None
 
-    print("Saving the table to {}".format(filename))
+    print(f"Saving the table to {filename}")
     t.write(filename, format='ascii.csv', overwrite=True)
     t = None
 
@@ -1008,11 +1007,11 @@ def test_read_big_table2(tmpdir):
     NB_ROWS = (2**32 // 2) // 10 + 5
     filename = str(tmpdir.join("big_table.csv"))
 
-    print("Creating a {} rows table.".format(NB_ROWS))
+    print(f"Creating a {NB_ROWS} rows table.")
     data = np.full(2**32 // 2 // 10 + 5, int(1e9), dtype=np.int32)
     t = Table(data=[data], names=['a'], copy=False)
 
-    print("Saving the table to {}".format(filename))
+    print(f"Saving the table to {filename}")
     t.write(filename, format='ascii.csv', overwrite=True)
     t = None
 
@@ -1030,9 +1029,7 @@ def test_read_big_table2(tmpdir):
 # fast_reader configurations: False| 'use_fast_converter'=False|True
 @pytest.mark.parametrize('fast_reader', [False, dict(use_fast_converter=False),
                                          dict(use_fast_converter=True)])
-# Catch Windows environment since we cannot use _read() with custom fast_reader
-@pytest.mark.parametrize("parallel", [False,
-    pytest.param(True, marks=pytest.mark.xfail(os.name == 'nt', reason="Multiprocessing is currently unsupported on Windows"))])
+@pytest.mark.parametrize("parallel", [False, True])
 def test_data_out_of_range(parallel, fast_reader, guess):
     """
     Numbers with exponents beyond float64 range (|~4.94e-324 to 1.7977e+308|)
@@ -1089,11 +1086,7 @@ def test_data_out_of_range(parallel, fast_reader, guess):
 
 
 @pytest.mark.parametrize("guess", [True, False])
-# catch Windows environment since we cannot use _read() with custom fast_reader
-@pytest.mark.parametrize("parallel", [
-    pytest.param(True, marks=pytest.mark.xfail(os.name == 'nt', reason="Multiprocessing is currently unsupported on Windows")),
-    False])
-
+@pytest.mark.parametrize("parallel", [False, True])
 def test_int_out_of_range(parallel, guess):
     """
     Integer numbers outside int range shall be returned as string columns
@@ -1103,7 +1096,7 @@ def test_int_out_of_range(parallel, guess):
     imax = np.iinfo(int).max-1
     huge = '{:d}'.format(imax+2)
 
-    text = 'P M S\n {:d} {:d} {:s}'.format(imax, imin, huge)
+    text = f'P M S\n {imax:d} {imin:d} {huge:s}'
     expected = Table([[imax], [imin], [huge]], names=('P', 'M', 'S'))
     table = ascii.read(text, format='basic', guess=guess,
                        fast_reader={'parallel': parallel})
@@ -1131,10 +1124,7 @@ def test_int_out_of_range(parallel, guess):
 
 
 @pytest.mark.parametrize("guess", [True, False])
-@pytest.mark.parametrize("parallel", [
-    pytest.param(True, marks=pytest.mark.xfail(os.name == 'nt', reason="Multiprocessing is currently unsupported on Windows")),
-    False])
-
+@pytest.mark.parametrize("parallel", [False, True])
 def test_fortran_reader(parallel, guess):
     """
     Make sure that ascii.read() can read Fortran-style exponential notation
@@ -1159,7 +1149,7 @@ def test_fortran_reader(parallel, guess):
         ascii.read(text.format(*(6*('D'))), format='basic', guess=guess,
                    fast_reader={'use_fast_converter': False,
                                 'parallel': parallel, 'exponent_style': 'D'})
-    assert 'fast_reader: exponent_style requires use_fast_converter' in str(e)
+    assert 'fast_reader: exponent_style requires use_fast_converter' in str(e.value)
 
     # Enable multiprocessing and the fast converter iterate over
     # all style-exponent combinations, with auto-detection
@@ -1178,9 +1168,7 @@ def test_fortran_reader(parallel, guess):
 
 
 @pytest.mark.parametrize("guess", [True, False])
-@pytest.mark.parametrize("parallel", [
-    pytest.param(True, marks=pytest.mark.xfail(os.name == 'nt', reason="Multiprocessing is currently unsupported on Windows")),
-    False])
+@pytest.mark.parametrize("parallel", [False, True])
 def test_fortran_invalid_exp(parallel, guess):
     """
     Test Fortran-style exponential notation in the fast_reader with invalid
@@ -1321,7 +1309,6 @@ def test_fortran_reader_notbasic():
 @pytest.mark.parametrize("guess", [True, False])
 @pytest.mark.parametrize('fast_reader', [dict(exponent_style='D'),
                                          dict(exponent_style='A')])
-
 def test_dict_kwarg_integrity(fast_reader, guess):
     """
     Check if dictionaries passed as kwargs (fast_reader in this test) are
@@ -1348,9 +1335,6 @@ def test_read_empty_basic_table_with_comments(fast_reader):
     # comment 2
     col1 col2
     """
-    if os.name == 'nt' and fast_reader and fast_reader.get('parallel'):
-        pytest.xfail("Multiprocessing is currently unsupported on Windows")
-
     t = ascii.read(dat, fast_reader=fast_reader)
     assert t.meta['comments'] == ['comment 1', 'comment 2']
     assert len(t) == 0
